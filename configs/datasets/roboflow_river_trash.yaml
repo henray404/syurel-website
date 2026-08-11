@@ -1,0 +1,62 @@
+# Roboflow Universe -- the two kept river-trash sets, exported as Pascal VOC and
+# merged into one raw folder (same shape, same weak quality; two configs would
+# buy nothing).
+#
+#   Trash In River     https://universe.roboflow.com/try-uqrjj/trash-in-river           ~1101 imgs
+#   River Trash final  https://universe.roboflow.com/trisha-lingat-m9vjl/river-trash-final-k9997  ~1800 imgs
+#
+# User-contributed and unaudited: expect label noise. Lowest sampling weight of
+# anything kept. Export as "Pascal VOC", not YOLO -- the adapter reads XML.
+#
+# `clustered-trash` in River Trash final is prior art for our clump class. Read
+# those examples before writing the Task 6 clump rule.
+
+dataset: roboflow_river_trash
+adapter: voc_bbox
+
+paths:
+  images: images
+  annotations: annotations
+recursive: true
+
+# Union of the class names across both exports. Under the `debris` schema origin
+# does not matter, so almost everything collapses to one class. Verify against
+# the real XML after export; `unmapped: error` will list anything missed.
+label_map:
+  trash: debris
+  plastic: debris
+  plastic-bag: debris
+  plastic-bottle: debris
+  plastic-container: debris
+  styrofoam: debris
+  cardboard: debris
+  cup: debris
+  metal-can: debris
+  branch: debris              # natural, but floating -> in-class under `debris`
+  clustered-trash: debris     # NOT mapped to clump: clump is derived by area,
+                              # not inherited from an unaudited annotator's call
+  oil-spill: background       # a surface film, not floating matter; not our class
+unmapped: error
+
+group_from: flat
+water_source: pseudo_pending
+
+pseudolabel:
+  ring_dilate: 30
+  n_seeds: 8
+  negative_top_frac: 0.15
+  min_water_frac: 0.10
+  max_water_frac: 0.95
+  min_sam_score: 0.85         # stricter: noisy boxes make bad seeds
+  seed: 1337
+
+clump:
+  enabled: true
+  min_area_frac: 0.005
+  close_kernel: 5
+
+max_size: 1024
+sampling_weight: 0.3
+
+sam_checkpoint: data/checkpoints/mobile_sam.pt
+sam_device: cpu

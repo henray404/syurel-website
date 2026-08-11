@@ -1,0 +1,48 @@
+# IWHR_AI_Lable_Floater_V1 -- Qiao, Yang, Wang (China Institute of Water Resources
+# and Hydropower Research). figshare 10.6084/m9.figshare.27376851, Apache 2.0.
+# 3000 images, shore-mounted fixed cameras on Chinese inland waters.
+#
+# The closest camera geometry to the deployment site in the whole survey, which is
+# what earns it the expensive SAM box-prompt conversion.
+
+dataset: iwhr
+adapter: voc_bbox
+
+paths:
+  images: images
+  annotations: annotations          # Pascal VOC XML
+recursive: true
+
+# Verify the real <name> strings after unzipping; `unmapped: error` prints
+# whatever it actually finds. This archive is likely single-class.
+label_map:
+  floater: debris
+  garbage: debris
+  trash: debris
+unmapped: error
+
+group_from: flat                    # no site structure documented in the archive
+water_source: pseudo_pending
+
+pseudolabel:
+  ring_dilate: 30
+  n_seeds: 8
+  # Shore-mounted oblique view: the top of the frame is bank/sky, not water.
+  negative_top_frac: 0.20
+  min_water_frac: 0.15
+  max_water_frac: 0.90
+  min_sam_score: 0.80
+  seed: 1337
+
+clump:
+  enabled: true
+  min_area_frac: 0.005
+  close_kernel: 5
+
+# Box-prompted SAM masks are weaker than hand-drawn polygons; do not let this
+# dataset outvote the real masks.
+sampling_weight: 0.7
+max_size: 1024
+
+sam_checkpoint: data/checkpoints/mobile_sam.pt
+sam_device: cpu

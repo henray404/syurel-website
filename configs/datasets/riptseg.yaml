@@ -1,0 +1,42 @@
+# RIPTSeg -- "Dataset of trash and water segmentations in riverine environments"
+# 4TU.ResearchData, The Ocean Cleanup, CC BY 4.0, ~300 images, 6 locations.
+# https://data.4tu.nl/datasets/90d13261-b0fe-444a-b408-c5a63db3d887
+#
+# The anchor dataset: the ONLY source with ground-truth water, which makes it the
+# yardstick for scoring the SAM water pseudo-labeller used on everything else.
+
+dataset: riptseg
+adapter: coco_polygon
+
+paths:
+  images: images
+  annotations: annotations/instances.json
+
+# IMPORTANT: these category strings are the expected ones, NOT verified against
+# the actual JSON (the zip was not downloaded during Phase 1). If they are wrong,
+# conversion fails loudly and prints the real category list -- that is the
+# `unmapped: error` policy doing its job. Fix the keys here; never touch code.
+label_map:
+  water: water
+  barrier: background          # structure is a config polygon at inference, not a class
+  trash in-system: debris
+  trash out-system: debris
+unmapped: error
+
+# Later entries win on overlap. Debris last: a bottle on water is debris.
+paint_order:
+  - water
+  - barrier
+  - trash in-system
+  - trash out-system
+
+group_from: parent             # loc1..loc6 directories
+water_source: labelled
+
+clump:
+  enabled: true
+  min_area_frac: 0.005
+  close_kernel: 5
+
+max_size: 1024
+sampling_weight: 1.0

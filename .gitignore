@@ -1,11 +1,19 @@
+# LEADING SLASHES ARE LOAD-BEARING. A pattern without one matches at any depth,
+# so a bare `data/` also ignores src/data/ -- which silently kept the entire
+# conversion pipeline out of git. Anchor everything to the repo root.
+
 # Data is never committed: multi-GB archives, and several sources are
 # redistribution-restricted (LaRS and MaSTr1325 licenses are unconfirmed).
-data/
+/data/
 
 # Review overlays are regenerable; the verdict CSVs are NOT -- they are manual
 # work, so they are kept.
-review/*/
-!review/*_verdict.csv
+/review/*/
+!/review/*_verdict.csv
+
+# Training runs: checkpoints are large, and every run is reproducible from its
+# own config.yaml -- the source config in configs/train/ IS committed.
+/runs/
 
 # Generated report
 docs/data_validation.md

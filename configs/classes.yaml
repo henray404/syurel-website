@@ -1,0 +1,27 @@
+# Target semantic schema. Single source of truth for class indices.
+#
+# Class 2 is `debris`, NOT `trash`: anything floating that is not water --
+# plastic, sachets, styrofoam, bags, wood, floating vegetation, water hyacinth.
+# Origin (anthropogenic vs natural) is deliberately out of the schema.
+# See docs/datasets.md section 9, decision 1.
+
+classes:
+  - { id: 0, name: background }
+  - { id: 1, name: water }
+  - { id: 2, name: debris }
+  - { id: 3, name: clump }
+
+# Pixels that must not contribute to the loss (e.g. rejected pseudo-labels
+# kept on disk for inspection). Never written by the converter today, but the
+# training code must honour it from day one or retro-fitting is painful.
+ignore_index: 255
+
+# Applied at load time (training / validation), NOT baked into the PNGs on disk.
+# That way collapsing is reversible without re-running conversion.
+#
+# To merge clump into debris -- the documented fallback if the clump/debris
+# boundary proves inconsistent in annotation -- uncomment:
+#
+# collapse:
+#   clump: debris
+collapse: {}

@@ -1,0 +1,17 @@
+# Deterministic split configuration.
+#
+# Changing `seed` reshuffles every split and invalidates comparison against any
+# previously trained model. Treat it as write-once. If you need a different split
+# for an experiment, copy this file rather than editing it.
+
+seed: 20260811
+
+ratios:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+
+# Leave empty to auto-discover every converted dataset under data/processed/.
+# Listing them explicitly is how you exclude one from training without deleting
+# the converted files.
+datasets: []

@@ -1,0 +1,44 @@
+# LaRS -- Lakes, Rivers, Seas. Zust, Pers, Kristan, ICCV 2023.
+# https://lojzezust.github.io/lars-dataset/  -- ~4000 per-pixel key frames.
+#
+# Role: water diversity + hard negatives. LaRS is now the main water source
+# besides RIPTSeg, since MaSTr1325 and ATLANTIS were dropped on relevance.
+#
+# LICENSE NOT CONFIRMED -- check the download page terms before redistributing
+# anything derived from this (docs/datasets.md s8).
+
+dataset: lars
+adapter: semantic_png
+
+paths:
+  images: images
+  masks: semantic
+recursive: true
+mask_suffix: .png
+
+# Semantic ids per the LaRS convention. VERIFY against the toolkit after
+# download; if the masks turn out to be colour-coded, delete id_to_label and use
+# color_to_label instead -- the adapter supports both.
+id_to_label:
+  0: obstacle          # static obstacle: shore, piers, structures
+  1: water
+  2: sky
+
+label_map:
+  water: water
+  obstacle: background
+  sky: background
+unmapped: error
+
+group_from: parent
+# LaRS labels water but has no debris class at all. Its job is the water class
+# and hard negatives (buoys, boats, swimmers, glare), so `none` is correct:
+# there is nothing here for the pseudo-labeller to add.
+water_source: none
+
+# No debris means nothing to promote, and running it would only cost time.
+clump:
+  enabled: false
+
+max_size: 1024
+sampling_weight: 0.8

@@ -1,0 +1,37 @@
+[project]
+name = "syurell"
+version = "0.1.0"
+description = "River floating-debris monitoring: coverage, area flux, blockage early warning"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "pillow>=10.0",
+    "pyyaml>=6.0",
+    "opencv-python-headless>=4.8",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+# Only needed for water pseudo-labelling and bbox->mask conversion.
+# Kept out of the base install so `uv sync` stays fast and torch-free.
+sam = [
+    "torch>=2.0",
+    "torchvision>=0.15",
+    "timm>=0.9",
+]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

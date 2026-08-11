@@ -1,0 +1,50 @@
+# RiSID v2 -- River Surface Image Dataset, Kataoka et al., Data in Brief 63 (2025)
+# Zenodo 10.5281/zenodo.16927238, CC BY 4.0, 7356 images, 11 sites / 7 Japanese rivers.
+#
+# Bulk supplier of debris masks, captured during flood season. Nadir view from
+# bridge rails -- deliberately kept despite the perspective mismatch, because
+# Phase 2 site data is what the model gets fine-tuned on (docs/datasets.md s9.3).
+
+dataset: risid
+adapter: coco_polygon
+
+paths:
+  images: images
+  # 2-category file: the schema merges everything into `debris` anyway.
+  annotations: annotations_2cat.json
+
+# "Non-plastics" is mostly wood and vegetation. Under the `debris` schema that is
+# in-class, not background -- decision 1 in docs/datasets.md s9, and the whole
+# reason the class was renamed from `trash`.
+label_map:
+  Plastics: debris
+  Non-plastics: debris
+unmapped: error
+
+paint_order:
+  - Non-plastics
+  - Plastics
+
+# Verify against the real filenames after download; if they are flat sequential
+# numbers with no site prefix, switch to `flat` and accept coarser grouping.
+group_from: stem_prefix
+water_source: pseudo_pending
+
+pseudolabel:
+  ring_dilate: 25
+  n_seeds: 8
+  negative_top_frac: 0.0       # nadir view: no sky band to mark as negative
+  min_water_frac: 0.30         # a nadir river surface should be mostly water
+  max_water_frac: 0.999
+  min_sam_score: 0.80
+  seed: 1337
+
+clump:
+  enabled: true
+  min_area_frac: 0.005
+  close_kernel: 5
+
+max_size: 1024
+# Largest dataset by far (~7k of ~15k images). Down-weighted so the mix is not
+# simply "train on Japanese nadir footage" -- see docs/datasets.md s6 Sampling.
+sampling_weight: 0.5
