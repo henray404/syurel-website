@@ -1,0 +1,66 @@
+# Baseline training run.
+#   python -m train.train --config configs/train/baseline.yaml
+#
+# Copy this file per experiment rather than editing it -- the run directory is
+# named from `name`, and overwriting a config makes an old run unreproducible.
+
+name: baseline_lraspp
+seed: 0
+device: null          # null -> cuda if available, else cpu
+deterministic: false  # true is slower; use when a result must be bit-repeatable
+
+model:
+  name: lraspp_mnv3   # `python -c "from models import registered; print(registered())"`
+  args:
+    pretrained: true  # COCO backbone; the 21-class head is replaced
+
+data:
+  size: 512
+  batch_size: 8
+  num_workers: 4
+  # Cap each dataset's per-epoch contribution, scaled by its sampling_weight in
+  # configs/datasets/*.yaml. Without this the mix is ~55% RiSID and the model
+  # overfits Japanese nadir footage. 0 disables capping (plain shuffle).
+  per_dataset_cap: 1200
+
+loss:
+  # Dice fixes class imbalance (debris is 1-3% of pixels); focal fixes the
+  # easy/hard imbalance within a class. Plain `ce` converges to all-water.
+  name: dice+focal
+  weights: [0.5, 0.5]
+  dice:
+    smooth: 1.0
+  focal:
+    gamma: 2.0
+
+optimizer:
+  name: adamw
+  lr: 0.0003
+  weight_decay: 0.0001
+
+scheduler:
+  name: cosine
+
+train:
+  epochs: 60
+  amp: true           # ignored on CPU
+  grad_clip: 1.0
+  # Must be one of metrics.HEADLINE. Debris IoU, not mIoU: background and water
+  # are easy, and averaging them in hides the class the project exists for.
+  select_metric: iou_debris
+  early_stopping_patience: 12
+
+# Probabilities for the failure modes in docs/datasets.md s7. Omitted keys use
+# the defaults in train/dataset.py.
+aug:
+  affine: 0.5
+  brightness_contrast: 0.8   # turbid water, exposure swings
+  hsv: 0.8                   # brown-water hue shift
+  gamma: 0.4
+  clahe: 0.2                 # low debris/water contrast
+  sun_flare: 0.20            # specular glare -- the classic false positive
+  tone_curve: 0.2
+  rain: 0.12
+  fog: 0.12                  # turbidity haze
+  low_light: 0.15
+  motion_blur: 0.1

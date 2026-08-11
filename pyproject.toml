@@ -19,6 +19,14 @@ sam = [
     "torchvision>=0.15",
     "timm>=0.9",
 ]
+# Training. torchvision also supplies the Task 3 models (LR-ASPP, DeepLabv3),
+# so no model-zoo dependency is needed until Task 4 adds SegFormer/smp.
+train = [
+    "torch>=2.0",
+    "torchvision>=0.15",
+    "albumentations>=1.4",
+    "tensorboard>=2.15",
+]
 dev = [
     "pytest>=8.0",
 ]
