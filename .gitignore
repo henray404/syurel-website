@@ -1,0 +1,18 @@
+# Data is never committed: multi-GB archives, and several sources are
+# redistribution-restricted (LaRS and MaSTr1325 licenses are unconfirmed).
+data/
+
+# Review overlays are regenerable; the verdict CSVs are NOT -- they are manual
+# work, so they are kept.
+review/*/
+!review/*_verdict.csv
+
+# Generated report
+docs/data_validation.md
+
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
