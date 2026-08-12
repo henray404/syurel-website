@@ -27,9 +27,40 @@ train = [
     "albumentations>=1.4",
     "tensorboard>=2.15",
 ]
+# Task 4 model comparison. smp 0.5.0 carries U-Net, DeepLabV3+ AND a native
+# Segformer decoder with mit_b0, so one dependency covers three candidates and
+# `transformers` is not needed. FLOPs come from torch.utils.flop_counter, which
+# is built in -- no fvcore/thop/ptflops.
+bench = [
+    "segmentation-models-pytorch>=0.5.0",
+]
+# YOLO11n-seg reference baseline ONLY. ultralytics is AGPL-3.0: shipping it in a
+# networked deployment can oblige you to release your source. Kept in a separate
+# extra so it is never installed by accident, and excluded from the Task 4
+# recommendation regardless of how it scores.
+yolo = [
+    "ultralytics>=8.3",
+]
 dev = [
     "pytest>=8.0",
 ]
+
+# NO CUDA PIN HERE, DELIBERATELY.
+#
+# `[tool.uv.sources]` applies on every platform, and the PyTorch CUDA indexes
+# have no aarch64 wheels -- so pinning torch to cu130 here would make `uv sync`
+# fail outright on the Raspberry Pi, which is the deployment target and the one
+# machine that must be able to install this project.
+#
+# CUDA is a training-only concern on one dev box, so install it explicitly:
+#
+#   uv pip install --index-url https://download.pytorch.org/whl/cu130 \
+#       --upgrade torch torchvision
+#
+# Use cu130, not cu128: for cp313 the cu128 index stops at torch 2.11, while
+# cu130 carries 2.13.0. The RTX 5050 is Blackwell (sm_120) and needs cu128 or
+# newer, so an older index installs a torch that cannot run on that GPU at all.
+# The wheel is ~1.8 GB; if the download times out, raise UV_HTTP_TIMEOUT.
 
 [build-system]
 requires = ["setuptools>=68"]

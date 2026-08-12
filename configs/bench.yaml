@@ -1,0 +1,67 @@
+# Model comparison harness.
+#   python -m bench.cost        # params / FLOPs / disk / latency  (no data needed)
+#   python -m bench.accuracy    # per-class IoU at each resolution (needs checkpoints)
+#   python -m bench.report      # merges both into docs/model_comparison.md
+
+# Set true ONLY when running on the actual deployment device (Pi 5 / Jetson).
+# False makes every downstream report label its latency numbers as a proxy.
+is_target_device: false
+
+resolutions: [640, 512, 416]
+
+models:
+  lraspp_mnv3:
+    license: Apache-2.0 (torchvision)
+    note: Pi-first candidate. Lowest-latency maintained option.
+    args: { pretrained: true }
+
+  deeplabv3_mnv3:
+    license: Apache-2.0 (torchvision)
+    note: Heavier head than LR-ASPP on the same backbone. Pure ASPP cost reference.
+    args: { pretrained: true }
+
+  unet_mnv3:
+    license: MIT (smp)
+    note: U-Net decoder keeps full-resolution skips -- expected best on small objects.
+    args: { pretrained: true }
+
+  unet_effnet_lite:
+    license: MIT (smp)
+    note: >
+      EfficientNet-lite0 drops SE blocks and swish, both poorly supported by edge
+      NPU toolchains. The candidate to prefer if the Hailo-8L path is taken.
+    args: { pretrained: true }
+
+  deeplabv3plus_mnv3:
+    license: MIT (smp)
+    note: Decoder recovers some of the detail plain DeepLabv3 loses at stride 8.
+    args: { pretrained: true }
+
+  segformer_b0:
+    license: MIT (smp, native mit_b0)
+    note: >
+      Attention-based. Parameter count looks competitive but CPU latency is
+      expected to be far worse, and Hailo/NPU compilers frequently cannot map
+      attention. Watch the latency column, not the params column.
+    args: { pretrained: true }
+
+  fast_scnn:
+    license: MIT (vendored, see src/models/fast_scnn.py)
+    note: >
+      VENDORED, NO PRETRAINED WEIGHTS. Trains from scratch while every other
+      candidate starts from ImageNet/COCO, so its accuracy is NOT comparable.
+      Include it for the cost columns only.
+    args: { pretrained: false }
+
+  # Reference baseline. Instance segmentation, not semantic: it has no water
+  # class, so it cannot produce the coverage metric on its own. AGPL-3.0, so it
+  # is excluded from the recommendation regardless of how it scores.
+  # Needs `uv sync --extra yolo`; skipped by default so the table still builds.
+  yolo11n_seg:
+    license: AGPL-3.0 (ultralytics) -- reference only, not deployable
+    note: >
+      Masks merged with bitwise OR, never summed. Cannot compute coverage alone
+      (no water class). See src/models/yolo_seg.py.
+    skip_cost: true
+    kind: yolo
+    weights: yolo11n-seg.pt

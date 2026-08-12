@@ -15,6 +15,10 @@
 # own config.yaml -- the source config in configs/train/ IS committed.
 /runs/
 
+# Benchmark temp checkpoints. bench/*.json IS committed -- it is the evidence
+# behind the numbers in docs/model_comparison.md.
+/bench/.*.tmp.pt
+
 # Generated report
 docs/data_validation.md
 

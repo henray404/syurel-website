@@ -33,8 +33,18 @@ def register(name: str) -> Callable[[ModelBuilder], ModelBuilder]:
     return deco
 
 
+def _load_all() -> None:
+    """Import every model module for its registration side effect.
+
+    Imported here rather than at package import so a missing optional dependency
+    only bites when that model is actually asked for. smp_models raises its
+    install hint at build time, not at import time, so this stays safe.
+    """
+    from . import fast_scnn, smp_models, torchvision_models  # noqa: F401
+
+
 def build_model(name: str, n_classes: int, **kwargs: Any) -> nn.Module:
-    from . import torchvision_models  # noqa: F401  (registration side effect)
+    _load_all()
 
     if name not in _REGISTRY:
         raise KeyError(f"no model {name!r}; registered: {sorted(_REGISTRY)}")
@@ -42,6 +52,5 @@ def build_model(name: str, n_classes: int, **kwargs: Any) -> nn.Module:
 
 
 def registered() -> list[str]:
-    from . import torchvision_models  # noqa: F401
-
+    _load_all()
     return sorted(_REGISTRY)

@@ -1,0 +1,275 @@
+{
+  "measured_at": "2026-08-12T04:19:59Z",
+  "host": {
+    "cpu": "AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD",
+    "machine": "AMD64",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.13.14",
+    "torch": "2.13.0+cpu",
+    "torch_threads": 1
+  },
+  "threads": 1,
+  "runs": 15,
+  "warmup": 4,
+  "resolutions": [
+    640,
+    512,
+    416
+  ],
+  "is_target_device": false,
+  "models": [
+    {
+      "name": "lraspp_mnv3",
+      "params": 3218648,
+      "params_m": 3.22,
+      "disk_mb": 13.084,
+      "license": "Apache-2.0 (torchvision)",
+      "note": "Pi-first candidate. Lowest-latency maintained option.",
+      "gflops": {
+        "640": 6.13,
+        "512": 3.93,
+        "416": 2.59
+      },
+      "latency": {
+        "640": {
+          "mean_ms": 188.895,
+          "p50_ms": 189.229,
+          "p90_ms": 201.555,
+          "std_ms": 8.954,
+          "fps": 5.29
+        },
+        "512": {
+          "mean_ms": 163.828,
+          "p50_ms": 162.437,
+          "p90_ms": 176.041,
+          "std_ms": 8.239,
+          "fps": 6.1
+        },
+        "416": {
+          "mean_ms": 74.044,
+          "p50_ms": 72.667,
+          "p90_ms": 80.804,
+          "std_ms": 5.702,
+          "fps": 13.51
+        }
+      }
+    },
+    {
+      "name": "deeplabv3_mnv3",
+      "params": 11021108,
+      "params_m": 11.02,
+      "disk_mb": 44.32,
+      "license": "Apache-2.0 (torchvision)",
+      "note": "Heavier head than LR-ASPP on the same backbone. Pure ASPP cost reference.",
+      "gflops": {
+        "640": 30.69,
+        "512": 19.64,
+        "416": 12.97
+      },
+      "latency": {
+        "640": {
+          "mean_ms": 447.52,
+          "p50_ms": 445.75,
+          "p90_ms": 461.136,
+          "std_ms": 8.007,
+          "fps": 2.23
+        },
+        "512": {
+          "mean_ms": 325.431,
+          "p50_ms": 325.645,
+          "p90_ms": 332.446,
+          "std_ms": 5.063,
+          "fps": 3.07
+        },
+        "416": {
+          "mean_ms": 148.987,
+          "p50_ms": 149.324,
+          "p90_ms": 153.706,
+          "std_ms": 4.159,
+          "fps": 6.71
+        }
+      }
+    },
+    {
+      "name": "unet_mnv3",
+      "params": 6686260,
+      "params_m": 6.69,
+      "disk_mb": 26.986,
+      "license": "MIT (smp)",
+      "note": "U-Net decoder keeps full-resolution skips -- expected best on small objects.",
+      "gflops": {
+        "640": 38.63,
+        "512": 24.72,
+        "416": 16.32
+      },
+      "latency": {
+        "640": {
+          "mean_ms": 636.329,
+          "p50_ms": 634.377,
+          "p90_ms": 650.267,
+          "std_ms": 12.076,
+          "fps": 1.57
+        },
+        "512": {
+          "mean_ms": 553.373,
+          "p50_ms": 550.352,
+          "p90_ms": 567.675,
+          "std_ms": 11.267,
+          "fps": 1.81
+        },
+        "416": {
+          "mean_ms": 267.766,
+          "p50_ms": 266.06,
+          "p90_ms": 278.836,
+          "std_ms": 7.962,
+          "fps": 3.73
+        }
+      }
+    },
+    {
+      "name": "unet_effnet_lite",
+      "params": 5198596,
+      "params_m": 5.2,
+      "disk_mb": 21.092,
+      "license": "MIT (smp)",
+      "note": "EfficientNet-lite0 drops SE blocks and swish, both poorly supported by edge NPU toolchains. The candidate to prefer if the Hailo-8L path is taken.\n",
+      "gflops": {
+        "640": 36.38,
+        "512": 23.28,
+        "416": 15.37
+      },
+      "latency": {
+        "640": {
+          "mean_ms": 641.813,
+          "p50_ms": 644.067,
+          "p90_ms": 666.63,
+          "std_ms": 14.645,
+          "fps": 1.56
+        },
+        "512": {
+          "mean_ms": 540.705,
+          "p50_ms": 538.653,
+          "p90_ms": 562.238,
+          "std_ms": 14.065,
+          "fps": 1.85
+        },
+        "416": {
+          "mean_ms": 287.675,
+          "p50_ms": 287.141,
+          "p90_ms": 303.501,
+          "std_ms": 11.983,
+          "fps": 3.48
+        }
+      }
+    },
+    {
+      "name": "deeplabv3plus_mnv3",
+      "params": 4709124,
+      "params_m": 4.71,
+      "disk_mb": 19.088,
+      "license": "MIT (smp)",
+      "note": "Decoder recovers some of the detail plain DeepLabv3 loses at stride 8.",
+      "gflops": {
+        "640": 14.46,
+        "512": 9.26,
+        "416": 6.11
+      },
+      "latency": {
+        "640": {
+          "mean_ms": 422.151,
+          "p50_ms": 425.066,
+          "p90_ms": 433.882,
+          "std_ms": 9.318,
+          "fps": 2.37
+        },
+        "512": {
+          "mean_ms": 311.555,
+          "p50_ms": 310.972,
+          "p90_ms": 330.513,
+          "std_ms": 11.563,
+          "fps": 3.21
+        },
+        "416": {
+          "mean_ms": 166.732,
+          "p50_ms": 164.754,
+          "p90_ms": 176.731,
+          "std_ms": 6.818,
+          "fps": 6.0
+        }
+      }
+    },
+    {
+      "name": "segformer_b0",
+      "params": 3715172,
+      "params_m": 3.72,
+      "disk_mb": 14.933,
+      "license": "MIT (smp, native mit_b0)",
+      "note": "Attention-based. Parameter count looks competitive but CPU latency is expected to be far worse, and Hailo/NPU compilers frequently cannot map attention. Watch the latency column, not the params column.\n",
+      "gflops": {
+        "640": 26.13,
+        "512": 15.55,
+        "416": 9.8
+      },
+      "latency": {
+        "640": {
+          "mean_ms": 1012.907,
+          "p50_ms": 1010.313,
+          "p90_ms": 1033.289,
+          "std_ms": 22.312,
+          "fps": 0.99
+        },
+        "512": {
+          "mean_ms": 945.34,
+          "p50_ms": 947.916,
+          "p90_ms": 974.381,
+          "std_ms": 23.807,
+          "fps": 1.06
+        },
+        "416": {
+          "mean_ms": 282.418,
+          "p50_ms": 282.902,
+          "p90_ms": 291.669,
+          "std_ms": 8.532,
+          "fps": 3.54
+        }
+      }
+    },
+    {
+      "name": "fast_scnn",
+      "params": 1135860,
+      "params_m": 1.14,
+      "disk_mb": 4.726,
+      "license": "MIT (vendored, see src/models/fast_scnn.py)",
+      "note": "VENDORED, NO PRETRAINED WEIGHTS. Trains from scratch while every other candidate starts from ImageNet/COCO, so its accuracy is NOT comparable. Include it for the cost columns only.\n",
+      "gflops": {
+        "640": 2.6,
+        "512": 1.66,
+        "416": 1.1
+      },
+      "latency": {
+        "640": {
+          "mean_ms": 83.604,
+          "p50_ms": 83.417,
+          "p90_ms": 89.425,
+          "std_ms": 4.859,
+          "fps": 11.96
+        },
+        "512": {
+          "mean_ms": 61.158,
+          "p50_ms": 61.711,
+          "p90_ms": 62.888,
+          "std_ms": 2.16,
+          "fps": 16.35
+        },
+        "416": {
+          "mean_ms": 33.198,
+          "p50_ms": 33.442,
+          "p90_ms": 35.833,
+          "std_ms": 2.222,
+          "fps": 30.12
+        }
+      }
+    }
+  ],
+  "failures": {}
+}
