@@ -1,0 +1,84 @@
+# Example site config. Copy per deployment site; do not edit this one in place.
+#
+#   python -m inference.run --config configs/inference/site_example.yaml --source river.mp4
+#
+# Every polygon below is a PLACEHOLDER for a 1280x720 frame. They must be redrawn
+# against a real frame from the real camera before any number here means anything.
+
+site: bridge_a
+device: null            # null -> cuda if available, else cpu
+input_size: 512         # must match what the model was trained/benchmarked at
+
+models:
+  trash:
+    name: lraspp_mnv3
+    checkpoint: runs/baseline_lraspp/best.pt
+    args: {}
+
+  # OPTIONAL second model for water only. Leave null to take water from the trash
+  # model's own output.
+  #
+  # Be honest with yourself about this: with one 4-class model a single forward
+  # pass already yields water, so caching it saves NO COMPUTE -- it only stabilises
+  # the coverage denominator. The decoupled water clock becomes a real saving only
+  # when this points at a genuinely cheaper water model. run.py prints which mode
+  # is active at startup.
+  water: null
+
+sampling:
+  # Trash moves over seconds; water level moves over minutes. Optical flow runs on
+  # every decoded frame regardless -- it never touches the network.
+  trash_interval_s: 1.0
+  water_interval_s: 30.0
+
+# Region of interest: the water surface only. Exclude bank, road, sky, vegetation.
+# Excluding sky matters more than it looks: sun glare on the horizon is the single
+# most common false positive for a bright debris class.
+roi:
+  - [120, 260]
+  - [1180, 260]
+  - [1240, 700]
+  - [60, 700]
+
+# The bridge pier / trash rack. Accumulation = debris mask AND this polygon, and it
+# is what drives the blockage alert. Draw it generously enough to include trash
+# piled ABOVE the waterline against the rack -- that trash is the blockage signal,
+# and the annotation guideline counts it (docs/annotation_guideline.md).
+structure:
+  - [560, 300]
+  - [720, 300]
+  - [740, 690]
+  - [540, 690]
+
+smoothing:
+  window: 30            # samples, not seconds
+  method: median        # median resists single-frame glare spikes; mean tracks faster
+
+blockage:
+  area_threshold: 0.30            # fraction of the structure polygon covered
+  growth_threshold_per_min: 0.10  # rapid accumulation alerts even below the area threshold
+  growth_window_s: 300.0
+  consecutive: 3                  # samples above threshold before the alert fires
+
+velocity:
+  scale: 0.5              # downscale before optical flow
+  min_magnitude_px: 0.3   # below this is still water, not motion
+  smooth_window: 15
+
+# Only used by area_flux. While the homography is disabled this is a pixel width
+# and the resulting flux is a RELATIVE INDEX, not m^2/s.
+cross_section_width: 1.0
+
+# PHASE 2. Enabling this raises NotImplementedError on purpose -- calibration needs
+# four surveyed points on the water surface at the real site, and inventing a scale
+# factor would turn every downstream figure into fiction dressed as a measurement.
+homography:
+  enabled: false
+  # image_points: [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]   # pixels
+  # world_points: [[X1, Y1], [X2, Y2], [X3, Y3], [X4, Y4]]   # metres
+  # cross_section_width_m: 12.0
+
+output_dir: out
+output:
+  csv: true
+  sqlite: true
