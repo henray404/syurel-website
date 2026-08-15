@@ -122,11 +122,17 @@ class SiteMasks:
 
 
 def build_masks(cfg: dict[str, Any], shape: tuple[int, int]) -> SiteMasks:
+    # An absent ROI means "the whole frame"; an absent STRUCTURE means "there is no
+    # structure", which is not the same thing. Reusing the whole-frame default for
+    # the structure made accumulation equal to total debris, so a site with no
+    # surveyed pier raised blockage alerts on ordinary passing trash.
     roi = polygon_mask(cfg.get("roi"), shape)
-    structure = polygon_mask(cfg.get("structure"), shape)
-    # The structure sits inside the field of view; intersecting with the ROI keeps
-    # accumulation area from counting pier pixels that were deliberately excluded.
-    structure = structure & roi
+    if cfg.get("structure"):
+        # The structure sits inside the field of view; intersecting with the ROI
+        # keeps accumulation from counting pier pixels deliberately excluded.
+        structure = polygon_mask(cfg["structure"], shape) & roi
+    else:
+        structure = np.zeros(shape, dtype=bool)
     return SiteMasks(roi=roi, structure=structure, shape=shape)
 
 

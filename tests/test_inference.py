@@ -101,6 +101,25 @@ def test_missing_roi_means_whole_frame() -> None:
     assert polygon_mask([], SHAPE).all()
 
 
+def test_missing_structure_means_no_structure_not_whole_frame(geom) -> None:
+    """Regression, caught on a real run: an absent structure polygon fell back to
+    the whole-frame default, so accumulation equalled total debris and a site with
+    no surveyed pier raised blockage alerts on ordinary passing trash."""
+    for cfg in ({"roi": None}, {"roi": None, "structure": None}, {"roi": None, "structure": []}):
+        masks = build_masks(cfg, SHAPE)
+        assert masks.structure_pixels == 0, cfg
+        assert masks.roi.all(), "ROI must still default to the whole frame"
+
+        m = np.full(SHAPE, WATER, dtype=np.uint8)
+        m[:40, :] = DEBRIS  # 40% of the frame is debris
+        r = frame_metrics(m, masks, geom)
+        assert r["accumulation_px"] == 0
+        assert r["accumulation_frac"] == 0.0, "no structure must mean no accumulation"
+
+        mon = BlockageMonitor(BlockageParams(area_threshold=0.3, consecutive=1))
+        assert not mon.update(r["accumulation_frac"], 0.0)["alert"]
+
+
 def test_smoother_drops_none_instead_of_treating_it_as_clean() -> None:
     s = Smoother(SmoothingParams(window=5, method="median"))
     for v in (0.4, 0.5, 0.6):

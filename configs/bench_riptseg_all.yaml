@@ -1,0 +1,33 @@
+# Full accuracy comparison: every architecture trained on RIPTSeg, collapsed schema.
+#
+#   python -m bench.accuracy --config configs/bench_riptseg_all.yaml --split test
+#   python -m bench.report
+#
+# All four runs share identical data, splits, loss, optimiser, schedule and
+# augmentation -- only the model differs -- so the numbers are comparable.
+# Test split is loc1, a location held out of training entirely.
+classes: configs/classes_collapsed.yaml
+
+is_target_device: false
+resolutions: [640, 512, 416]
+
+models:
+  lraspp_mnv3:
+    run: riptseg_lraspp_collapsed
+    license: Apache-2.0 (torchvision)
+    args: {}
+
+  unet_mnv3:
+    run: riptseg_unet_mnv3_collapsed
+    license: MIT (smp)
+    args: {}
+
+  segformer_b0:
+    run: riptseg_segformer_b0_collapsed
+    license: MIT (smp, native mit_b0)
+    args: {}
+
+  deeplabv3plus_mnv3:
+    run: riptseg_deeplabv3plus_mnv3_collapsed
+    license: MIT (smp)
+    args: {}
