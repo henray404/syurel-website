@@ -238,6 +238,41 @@ def test_bare_basename_resolves_into_subdirectories(tmp_path) -> None:
     assert {s.sample_id for s in got} == {"loc1__a", "loc2__b", "loc3__c"}
 
 
+def test_regex_grouping_keeps_video_frames_together(tmp_path) -> None:
+    """Regression: RiSID names frames "<video>_<frame>_<n>.png". `stem_prefix`
+    strips only the last token, leaving 7332 groups for 7356 images -- so
+    group-aware splitting did nothing and near-duplicate frames from one video
+    could land in train and val at once."""
+    from data.adapters.coco_polygon import CocoPolygonAdapter
+
+    names = [
+        "vidA.flvvidA_001255_6_0.png",
+        "vidA.flvvidA_001260_6_0.png",
+        "vidA.flvvidA_001265_6_0.png",
+        "vidB.flvvidB_000042_6_0.png",
+    ]
+    cfg = _write_coco(tmp_path, names, ["", "", "", ""])
+
+    cfg["group_from"] = "stem_prefix"
+    broken = {s.group for s in CocoPolygonAdapter(cfg, tmp_path).samples()}
+    assert len(broken) == 4, "sanity: stem_prefix gives one group per frame"
+
+    cfg["group_from"] = "regex"
+    cfg["group_regex"] = r"^(.*?)_\d{5,}_"
+    groups = [s.group for s in CocoPolygonAdapter(cfg, tmp_path).samples()]
+    assert set(groups) == {"vidA.flvvidA", "vidB.flvvidB"}
+    assert groups.count("vidA.flvvidA") == 3, "all three vidA frames share a group"
+
+
+def test_regex_grouping_requires_a_pattern(tmp_path) -> None:
+    from data.adapters.coco_polygon import CocoPolygonAdapter
+
+    cfg = _write_coco(tmp_path, ["a_000001_6.png"], [""])
+    cfg["group_from"] = "regex"
+    with pytest.raises(ValueError, match="group_regex"):
+        CocoPolygonAdapter(cfg, tmp_path)
+
+
 def test_recursive_lookup_refuses_ambiguous_basenames(tmp_path) -> None:
     """Resolving by basename is only safe while basenames are unique."""
     from data.adapters.coco_polygon import CocoPolygonAdapter

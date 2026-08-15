@@ -25,9 +25,18 @@ paint_order:
   - Non-plastics
   - Plastics
 
-# Verify against the real filenames after download; if they are flat sequential
-# numbers with no site prefix, switch to `flat` and accept coarser grouping.
-group_from: stem_prefix
+# VERIFIED against the real filenames on 2026-08-15, and the original setting was
+# WRONG. Files are named "<video>_<frame>_<n>.png", e.g.
+#   20221007124922_d.flv20221007124922_d_001255_6_0.png
+# `stem_prefix` strips only the last token, which left 7332 groups for 7356
+# images -- group-aware splitting became a no-op. Meanwhile 90.5% of adjacent
+# frame pairs within a video sit under 10 frames apart, so near-duplicate frames
+# would have landed in train and val simultaneously and inflated every metric.
+#
+# The regex captures everything before the frame counter, giving 279 real video
+# groups (mean 26 images each, largest 337).
+group_from: regex
+group_regex: '^(.*?)_\d{5,}_'
 water_source: pseudo_pending
 
 pseudolabel:

@@ -9,6 +9,7 @@ back to pycocotools only if actually encountered.
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from collections.abc import Iterator
 from pathlib import Path
@@ -111,6 +112,9 @@ class CocoPolygonAdapter(Adapter):
         # component so splits cannot straddle them; configurable because RIPTSeg
         # groups by loc1..loc6 directory and RiSID by filename stem prefix.
         self.group_from = str(cfg.get("group_from", "parent"))
+        self._group_re = re.compile(str(cfg["group_regex"])) if cfg.get("group_regex") else None
+        if self.group_from == "regex" and self._group_re is None:
+            raise ValueError(f"{self.dataset}: group_from: regex requires a `group_regex`")
 
         # RIPTSeg stores a bare basename in file_name while the images sit in
         # loc1/..loc6/ subdirectories, so `image_root / file_name` resolves to
@@ -144,12 +148,27 @@ class CocoPolygonAdapter(Adapter):
 
     def _group_key(self, rel: str) -> str:
         p = Path(rel)
+        # `rel` arrives with the extension ALREADY removed, so use .name, never
+        # .stem: RiSID filenames embed a dot mid-name
+        # ("20221007124922_d.flv20221007124922_d_001255_6_0"), and .stem would
+        # treat everything after that dot as a suffix and cut the name to
+        # "20221007124922_d".
+        stem = p.name
         if self.group_from == "parent":
             return p.parent.name or self.dataset
         if self.group_from == "stem_prefix":
             # "arakawa_20210715_000123.jpg" -> "arakawa_20210715"
-            parts = p.stem.rsplit("_", 1)
-            return parts[0] if len(parts) == 2 else p.stem
+            parts = stem.rsplit("_", 1)
+            return parts[0] if len(parts) == 2 else stem
+        if self.group_from == "regex":
+            # For datasets whose grouping needs more than a suffix strip. RiSID
+            # names frames "<video>_<frame>_<n>.png", and stem_prefix left 7332
+            # groups for 7356 images -- i.e. no grouping at all, while 90% of
+            # adjacent frames sit under 10 frames apart. Group 1 of the match is
+            # the key; a non-match falls back to the stem (its own group), which
+            # is the conservative direction.
+            m = self._group_re.search(stem) if self._group_re else None
+            return m.group(1) if m else stem
         if self.group_from == "flat":
             return self.dataset
         raise ValueError(f"{self.dataset}: unknown group_from {self.group_from!r}")
