@@ -45,6 +45,13 @@ dev = [
     "pytest>=8.0",
 ]
 
+# WARNING: `uv sync` WILL UNINSTALL A LOCALLY-INSTALLED CUDA TORCH.
+# The CUDA wheels were installed from local files, so they are not in uv.lock and
+# sync "repairs" the environment back to the CPU build from PyPI. After any
+# `uv sync`, re-run the install command below and re-check
+# torch.cuda.is_available(). Use `uv pip install <pkg>` for one-off additions,
+# which leaves the rest of the environment alone.
+#
 # NO CUDA PIN HERE, DELIBERATELY.
 #
 # `[tool.uv.sources]` applies on every platform, and the PyTorch CUDA indexes

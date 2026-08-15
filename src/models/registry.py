@@ -40,7 +40,7 @@ def _load_all() -> None:
     only bites when that model is actually asked for. smp_models raises its
     install hint at build time, not at import time, so this stays safe.
     """
-    from . import fast_scnn, smp_models, torchvision_models  # noqa: F401
+    from . import fast_scnn, highend, smp_models, torchvision_models  # noqa: F401
 
 
 def build_model(name: str, n_classes: int, **kwargs: Any) -> nn.Module:
