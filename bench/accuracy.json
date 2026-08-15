@@ -1,0 +1,272 @@
+{
+  "measured_at": "2026-08-15T05:11:34Z",
+  "split": "test",
+  "device": "cuda",
+  "resolutions": [
+    640,
+    512,
+    416
+  ],
+  "models": [
+    {
+      "name": "lraspp_mnv3",
+      "status": "OK",
+      "checkpoint_epoch": 32,
+      "by_resolution": {
+        "640": {
+          "iou_background": 0.9666336654598947,
+          "precision_background": 0.973191826320137,
+          "recall_background": 0.9930768371382862,
+          "iou_water": 0.7920344858060269,
+          "precision_water": 0.9554981419553237,
+          "recall_water": 0.8223706010156774,
+          "iou_debris": 0.41909711938292454,
+          "precision_debris": 0.48039322627178926,
+          "recall_debris": 0.7666044064581098,
+          "iou_clump": NaN,
+          "precision_clump": NaN,
+          "recall_clump": NaN,
+          "miou": 0.7259217568829488,
+          "pixel_acc": 0.9212849758987164
+        },
+        "512": {
+          "iou_background": 0.9661944572048256,
+          "precision_background": 0.9727703733872973,
+          "recall_background": 0.9930521021126129,
+          "iou_water": 0.786377446722955,
+          "precision_water": 0.9534390486855695,
+          "recall_water": 0.8177823674940534,
+          "iou_debris": 0.4116832697295593,
+          "precision_debris": 0.472937554919141,
+          "recall_debris": 0.7606831606098972,
+          "iou_clump": NaN,
+          "precision_clump": NaN,
+          "recall_clump": NaN,
+          "miou": 0.7214183912191132,
+          "pixel_acc": 0.9193196183929598
+        },
+        "416": {
+          "iou_background": 0.9620817953021996,
+          "precision_background": 0.9688954741331026,
+          "recall_background": 0.992743457083702,
+          "iou_water": 0.770244663678505,
+          "precision_water": 0.9410429904230453,
+          "recall_water": 0.8092984730567141,
+          "iou_debris": 0.3871677461743129,
+          "precision_debris": 0.4582978241565688,
+          "recall_debris": 0.7138408127839861,
+          "iou_clump": NaN,
+          "precision_clump": NaN,
+          "recall_clump": NaN,
+          "miou": 0.7064980683850057,
+          "pixel_acc": 0.9135752711098098
+        }
+      },
+      "debris_iou_drop_pct": {
+        "416": 7.6,
+        "512": 1.8,
+        "640": 0.0
+      },
+      "miou_drop_pct": {
+        "416": 2.7,
+        "512": 0.6,
+        "640": 0.0
+      }
+    },
+    {
+      "name": "unet_mnv3",
+      "status": "OK",
+      "checkpoint_epoch": 6,
+      "by_resolution": {
+        "640": {
+          "iou_background": 0.9792017014305171,
+          "precision_background": 0.9852757100080055,
+          "recall_background": 0.9937436672475082,
+          "iou_water": 0.7900744085622081,
+          "precision_water": 0.9391389837524575,
+          "recall_water": 0.8327098773173138,
+          "iou_debris": 0.3851276008008308,
+          "precision_debris": 0.45565018371076954,
+          "recall_debris": 0.713329878054742,
+          "iou_clump": NaN,
+          "precision_clump": NaN,
+          "recall_clump": NaN,
+          "miou": 0.7181345702645185,
+          "pixel_acc": 0.9220541262558799
+        },
+        "512": {
+          "iou_background": 0.9771180532476421,
+          "precision_background": 0.9834534812908178,
+          "recall_background": 0.9934503023928076,
+          "iou_water": 0.7792692114389352,
+          "precision_water": 0.9342855304406598,
+          "recall_water": 0.824458741905937,
+          "iou_debris": 0.3650311565566373,
+          "precision_debris": 0.43733404193829234,
+          "recall_debris": 0.6882736305499147,
+          "iou_clump": NaN,
+          "precision_clump": NaN,
+          "recall_clump": NaN,
+          "miou": 0.7071394737477382,
+          "pixel_acc": 0.9175369132095078
+        },
+        "416": {
+          "iou_background": 0.9751207940716907,
+          "precision_background": 0.9818754431501354,
+          "recall_background": 0.9929945691843672,
+          "iou_water": 0.754451611135383,
+          "precision_water": 0.9316775090447138,
+          "recall_water": 0.7986370232381247,
+          "iou_debris": 0.3376188096340679,
+          "precision_debris": 0.40017390595491925,
+          "recall_debris": 0.6835238585889496,
+          "iou_clump": NaN,
+          "precision_clump": NaN,
+          "recall_clump": NaN,
+          "miou": 0.6890637382803805,
+          "pixel_acc": 0.9082884303554949
+        }
+      },
+      "debris_iou_drop_pct": {
+        "416": 12.3,
+        "512": 5.2,
+        "640": 0.0
+      },
+      "miou_drop_pct": {
+        "416": 4.0,
+        "512": 1.5,
+        "640": 0.0
+      }
+    },
+    {
+      "name": "segformer_b0",
+      "status": "OK",
+      "checkpoint_epoch": 18,
+      "by_resolution": {
+        "640": {
+          "iou_background": 0.9640380090763336,
+          "precision_background": 0.9697897569512457,
+          "recall_background": 0.9938854510781776,
+          "iou_water": 0.8034386385023418,
+          "precision_water": 0.9603325837330717,
+          "recall_water": 0.8310174210841301,
+          "iou_debris": 0.47427720311414834,
+          "precision_debris": 0.5327366480330804,
+          "recall_debris": 0.8121026022159403,
+          "iou_clump": NaN,
+          "precision_clump": NaN,
+          "recall_clump": NaN,
+          "miou": 0.7472512835642746,
+          "pixel_acc": 0.9274264475288923
+        },
+        "512": {
+          "iou_background": 0.9500396836891345,
+          "precision_background": 0.9555825217967672,
+          "recall_background": 0.993931536825798,
+          "iou_water": 0.7718122353095517,
+          "precision_water": 0.9574505958378756,
+          "recall_water": 0.7992253261770549,
+          "iou_debris": 0.45861725882289084,
+          "precision_debris": 0.5177485007244679,
+          "recall_debris": 0.8006227201269837,
+          "iou_clump": NaN,
+          "precision_clump": NaN,
+          "recall_clump": NaN,
+          "miou": 0.7268230592738589,
+          "pixel_acc": 0.9158755829260893
+        },
+        "416": {
+          "iou_background": 0.9477740325994025,
+          "precision_background": 0.9537566496687833,
+          "recall_background": 0.9934251782345025,
+          "iou_water": 0.7388612782961026,
+          "precision_water": 0.9555001740593241,
+          "recall_water": 0.7651918811190327,
+          "iou_debris": 0.41644405655100486,
+          "precision_debris": 0.46426824351565527,
+          "recall_debris": 0.8016959300463629,
+          "iou_clump": NaN,
+          "precision_clump": NaN,
+          "recall_clump": NaN,
+          "miou": 0.7010264558155033,
+          "pixel_acc": 0.9041314774597412
+        }
+      },
+      "debris_iou_drop_pct": {
+        "416": 12.2,
+        "512": 3.3,
+        "640": 0.0
+      },
+      "miou_drop_pct": {
+        "416": 6.2,
+        "512": 2.7,
+        "640": 0.0
+      }
+    },
+    {
+      "name": "deeplabv3plus_mnv3",
+      "status": "OK",
+      "checkpoint_epoch": 27,
+      "by_resolution": {
+        "640": {
+          "iou_background": 0.9590736999581158,
+          "precision_background": 0.9630214129898329,
+          "recall_background": 0.9957439636164457,
+          "iou_water": 0.7551164240600686,
+          "precision_water": 0.9651045031258618,
+          "recall_water": 0.7763120019276326,
+          "iou_debris": 0.41311741743024016,
+          "precision_debris": 0.45629421636265866,
+          "recall_debris": 0.813635963582666,
+          "iou_clump": NaN,
+          "precision_clump": NaN,
+          "recall_clump": NaN,
+          "miou": 0.7091025138161414,
+          "pixel_acc": 0.9099337940646958
+        },
+        "512": {
+          "iou_background": 0.9601708591411566,
+          "precision_background": 0.9642193356281431,
+          "recall_background": 0.9956461617765912,
+          "iou_water": 0.721281122783162,
+          "precision_water": 0.9684334517745654,
+          "recall_water": 0.7386470856068168,
+          "iou_debris": 0.3907478553613165,
+          "precision_debris": 0.4189214710537669,
+          "recall_debris": 0.8531601520169696,
+          "iou_clump": NaN,
+          "precision_clump": NaN,
+          "recall_clump": NaN,
+          "miou": 0.6907332790952118,
+          "pixel_acc": 0.8993139868878821
+        },
+        "416": {
+          "iou_background": 0.9743668597703464,
+          "precision_background": 0.980692371801001,
+          "recall_background": 0.9934238010200565,
+          "iou_water": 0.7041547833733421,
+          "precision_water": 0.9626662495138266,
+          "recall_water": 0.7239238840809047,
+          "iou_debris": 0.35296739041423225,
+          "precision_debris": 0.3744439101851807,
+          "recall_debris": 0.8602180481488146,
+          "iou_clump": NaN,
+          "precision_clump": NaN,
+          "recall_clump": NaN,
+          "miou": 0.6771630111859734,
+          "pixel_acc": 0.8935088258905258
+        }
+      },
+      "debris_iou_drop_pct": {
+        "416": 14.6,
+        "512": 5.4,
+        "640": 0.0
+      },
+      "miou_drop_pct": {
+        "416": 4.5,
+        "512": 2.6,
+        "640": 0.0
+      }
+    }
+  ]
+}

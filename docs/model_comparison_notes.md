@@ -1,183 +1,141 @@
-## 3. What the cost numbers already tell us
+## 3. Reading the two tables together
 
-Accuracy is not measured yet, so nothing below is a final pick. But three findings
-are already solid, because they are properties of the architectures rather than of
-the training data.
+Accuracy is now measured, not pending. Every model above was trained on the same
+200 RIPTSeg images (loc2/3/5/6), validated on loc4 and tested on loc1, with
+identical loss, optimiser, schedule and augmentation. Only the architecture
+differs.
 
-Run-to-run variance on this host is roughly 5-10%; every gap discussed below is far
-larger than that.
+**The test split is an unseen location.** That is a much harder question than a
+random split over 300 near-duplicate frames from six fixed cameras, which would
+mostly measure memorisation. Expect these numbers to sit lower, and be more
+honest, than published figures using random splits on the same dataset.
 
-### 3.1 The parameter count lies. Badly.
+### The headline trade-off
 
-| model | params | rank by params | ms@512 | rank by latency |
+| model | test mIoU@640 | test debris IoU@640 | ms@512 (CPU) | params |
 |---|---|---|---|---|
-| `fast_scnn` | 1.14 M | 1 | 61 | 1 |
-| `lraspp_mnv3` | 3.22 M | 2 | 164 | 2 |
-| `segformer_b0` | 3.72 M | 3 | **945** | **7 (last)** |
-| `deeplabv3plus_mnv3` | 4.71 M | 4 | 312 | 3 |
-| `unet_effnet_lite` | 5.20 M | 5 | 541 | 5 |
-| `unet_mnv3` | 6.69 M | 6 | 553 | 6 |
-| `deeplabv3_mnv3` | 11.02 M | 7 | 325 | 4 |
+| `segformer_b0` | **0.747** | **0.474** | 945 | 3.72 M |
+| `lraspp_mnv3` | 0.726 | 0.419 | **164** | 3.22 M |
+| `unet_mnv3` | 0.718 | 0.385 | 553 | 6.69 M |
+| `deeplabv3plus_mnv3` | 0.709 | 0.413 | 312 | 4.71 M |
 
-SegFormer-B0 is the third *smallest* model and the *slowest* by a wide margin --
-**5.8x slower than LR-ASPP** at 512 while having only 16% more parameters.
-DeepLabv3-MNv3 is the largest model, 3.4x the parameters of SegFormer, and runs
-**2.9x faster**. If you had picked on "lightweight = few parameters", you would
-have picked one of the two worst options for CPU deployment.
+SegFormer-B0 wins on accuracy and loses on cost by a factor of six. It is
+**13% better on debris IoU than LR-ASPP and 5.8x slower on CPU**. That is the
+whole decision in one line, and it is exactly the tension the harness exists to
+expose.
 
-### 3.2 FLOPs lie too, just less
+### The parameter count still lies
 
-| model | GFLOPs@512 | ms@512 | ms per GFLOP |
+`unet_mnv3` has the most parameters (6.69 M), the second-worst latency, and the
+**worst debris IoU of the four**. More capacity did not help; on 200 images it
+hurt. Its validation curve peaked at **epoch 6** and degraded from there, while
+LR-ASPP (half the parameters) peaked at epoch 32 and SegFormer at 49. That is
+textbook overfitting, and it is the clearest argument in this document for why
+the Phase 2 annotation budget matters more than the architecture choice.
+
+### Small-object degradation, measured
+
+Debris IoU lost by dropping from 640 to 416, against mIoU lost:
+
+| model | debris IoU drop | mIoU drop | ratio |
 |---|---|---|---|
-| `deeplabv3_mnv3` | 19.6 | 325 | 16.6 |
-| `unet_mnv3` | 24.7 | 553 | 22.4 |
-| `deeplabv3plus_mnv3` | 9.3 | 312 | 33.5 |
-| `fast_scnn` | 1.7 | 61 | 35.9 |
-| `lraspp_mnv3` | 3.9 | 164 | 42.0 |
-| `segformer_b0` | **15.6** | **945** | **60.6** |
+| `lraspp_mnv3` | **7.6%** | 2.7% | 2.8x |
+| `segformer_b0` | 12.2% | 6.2% | 2.0x |
+| `unet_mnv3` | 12.3% | 4.0% | 3.1x |
+| `deeplabv3plus_mnv3` | 14.6% | 4.5% | 3.2x |
 
-SegFormer-B0 does *fewer* FLOPs than DeepLabv3-MNv3 (15.6 vs 19.6) and takes
-**2.9x longer**. FLOPs count arithmetic; they do not count memory traffic,
-attention's irregular access pattern, or how well an op maps onto the CPU's vector
-units. Report FLOPs because the literature does, but never rank on them.
+**Debris degrades 2-3x faster than mIoU on every single model.** Choosing a
+resolution on mIoU would understate the damage by roughly a factor of three. This
+is the small-object trade-off the brief predicted, now quantified on real data.
 
-### 3.3 SegFormer falls off a cliff between 416 and 512
-
-| model | ms@416 | ms@512 | ratio | ms@640 | ratio vs 416 |
-|---|---|---|---|---|---|
-| `fast_scnn` | 33 | 61 | 1.9x | 84 | 2.5x |
-| `deeplabv3plus_mnv3` | 167 | 312 | 1.9x | 422 | 2.5x |
-| `lraspp_mnv3` | 74 | 164 | 2.2x | 189 | 2.6x |
-| `segformer_b0` | 282 | **945** | **3.4x** | 1013 | **3.6x** |
-
-Pixel count only grows 1.51x from 416 to 512, and every convolutional model tracks
-roughly that (1.9-2.2x, the excess being cache effects). SegFormer jumps **3.4x**,
-because self-attention is quadratic in token count and the token grid grows with
-the square of the input side.
-
-The practical consequence is sharp: **SegFormer-B0 is borderline usable at 416 and
-unusable at 512+ on CPU.** If it wins on accuracy, it wins only at 416 -- which is
-also the resolution where a small-object problem hurts most. That tension is
-exactly what section 2's resolution sweep has to resolve, and it cannot be resolved
-from the cost table alone.
+`lraspp_mnv3` is also the most robust to downscaling in absolute terms (7.6%),
+which matters more than it looks: on a Pi the affordable resolution is the binding
+constraint, and LR-ASPP loses the least when forced down to 416.
 
 ---
 
-## 4. The number that should worry you
+## 4. What the cost numbers already told us, confirmed
 
-Everything above was measured on a **Ryzen 9 270, single-threaded**. A Raspberry
-Pi 5 is not a Ryzen. Single-core comparisons put a Cortex-A76 at 2.4 GHz somewhere
-in the region of **5-15x slower** than a modern desktop Zen core on this kind of
-workload `[Low confidence -- not measured, and the spread is wide]`.
+All three pre-accuracy cost findings survive contact with the accuracy data:
 
-Applying that range to the fastest *pretrained* model:
+1. **Parameter count mis-ranks latency.** SegFormer-B0 is the 3rd smallest model
+   and the slowest, 5.8x slower than LR-ASPP at 512. It is now also the most
+   accurate, so the mis-ranking cuts both ways.
+2. **FLOPs mis-rank it too.** SegFormer does fewer GFLOPs than DeepLabv3-MNv3
+   (15.6 vs 19.6) and takes 2.9x longer.
+3. **SegFormer scales 3.4x from 416 to 512** where every CNN scales 1.9-2.2x,
+   because attention is quadratic in token count.
 
-| | ms measured | Pi 5 estimate (5-15x) |
-|---|---|---|
-| `lraspp_mnv3` @ 416 | 74 | **0.4 - 1.1 s/frame** |
-| `lraspp_mnv3` @ 512 | 164 | **0.8 - 2.5 s/frame** |
-| `segformer_b0` @ 512 | 945 | 4.7 - 14 s/frame |
-
-**This is fine for coverage and fatal for velocity.** The two metrics have
-completely different timing requirements:
-
-- **Coverage / blockage alert** -- trash accumulates over minutes. Sampling at
-  0.5-1 fps is ample, and Task 5's decoupled sampling already assumes you do not
-  run everything every frame. LR-ASPP on a Pi 5 clears this comfortably.
-- **Surface velocity via optical flow** -- needs *consecutive* frames close enough
-  in time that the same debris is trackable between them. At 1-2 s/frame, a patch
-  of trash moving 0.5 m/s has travelled 0.5-1 m and may have left the ROI
-  entirely. Optical flow on segmentation output at that cadence will not work.
-
-The fix is not a faster model. It is to decouple velocity from segmentation: run
-optical flow on **raw frames** at native camera rate (it is cheap, and it does not
-need the network), and use the segmentation mask only to decide *which* flow
-vectors count as debris. Flagged now because it changes the Task 5 design, and it
-would otherwise be discovered late and expensively.
+Point 3 now has a sharper consequence. SegFormer's advantage is largest at 640
+(+0.055 debris IoU over LR-ASPP) and shrinks at 416 (+0.029), which is the only
+resolution where its CPU latency is remotely tolerable. **It wins where it cannot
+run, and nearly ties where it can.**
 
 ---
 
 ## 5. Recommendation
 
-**Provisional, cost-only. Do not commit to a model until section 2 is filled in.**
-The cheapest model that cannot see a sachet is worth nothing, and debris IoU is the
-column that decides.
-
 ### Pi 5, CPU only
 
-**`lraspp_mnv3` at 416.** It is the fastest model with pretrained weights, by more
-than 2x over the next pretrained candidate, and 416 keeps it near ~1 s/frame even
-on a pessimistic Pi estimate.
+**`lraspp_mnv3` at 512, or 416 if the frame budget demands it.**
 
-`fast_scnn` is genuinely faster (61 ms vs 164 at 512, and a 4.7 MB checkpoint) but
-it has **no pretrained weights** -- it trains from scratch on a few thousand images
-while everything else starts from ImageNet or COCO. Expect it to lose on accuracy
-for reasons that have nothing to do with its architecture. Revisit it only if
-LR-ASPP misses the latency budget on real hardware; then a from-scratch Fast-SCNN
-plus heavier augmentation is the escape hatch.
+It is 5.8x faster than the most accurate model for a 12% relative loss in debris
+IoU, it degrades the least under downscaling, and it is the only candidate whose
+projected Pi latency (0.8-2.5 s/frame at 512, 0.4-1.1 s at 416) fits the coverage
+sampling rate. Coverage needs 0.5-1 fps, not 30.
+
+Do not read the 512-vs-640 gap as free accuracy: it costs 1.8% of debris IoU for
+40% more latency. At 416 the cost is 7.6%, which is the real decision point.
 
 ### Pi 5 + Hailo-8L
 
-**`unet_effnet_lite`, or `lraspp_mnv3` if it quantizes cleanly. Not SegFormer.**
+**`unet_effnet_lite` or `lraspp_mnv3`. Still not SegFormer.**
 
-The Hailo path is not about latency, it is about what the compiler can map. Two
-concrete constraints drive this:
+Unchanged by the accuracy data and reinforced by it: SegFormer's advantage is
+concentrated at high resolution, which is where NPU memory limits bite hardest,
+and transformer blocks frequently fail to map onto NPU toolchains at all.
 
-1. **Attention frequently will not map.** NPU toolchains target convolutional
-   graphs; transformer blocks either fall back to CPU (destroying the benefit) or
-   fail to compile. SegFormer-B0 is a bad bet here regardless of its accuracy.
-2. **EfficientNet-lite exists precisely for this.** The "lite" variants drop
-   squeeze-excitation blocks and replace swish with ReLU6 -- both chosen because SE
-   and swish are poorly supported by edge NPU toolchains. That is why
-   `unet_effnet_lite` is in the candidate set at all, despite being mid-pack on CPU
-   latency: on a Hailo it may well beat models that beat it here.
+`unet_effnet_lite` was not trained here -- only its cost was measured. Given
+`unet_mnv3` came last on accuracy, **do not assume the EfficientNet-lite variant
+will be competitive**; train it before committing to the Hailo path. The lite
+encoder exists for quantisation friendliness, not accuracy.
 
-Hailo also requires INT8 quantization, which is its own accuracy loss and is not
-measured anywhere in this document. **If Hailo is a serious option, budget a
-separate quantization-accuracy experiment** -- post-training INT8 can cost a small
-class like debris disproportionately, and that risk is invisible in FP32 numbers.
-`[Medium confidence on the mapping constraints; nothing here has been compiled for
-that device.]`
+INT8 quantisation remains unmeasured and can cost a 2-3% class disproportionately.
 
 ### Jetson Orin Nano
 
-**Re-run the benchmark before deciding -- this table does not apply.**
+**`segformer_b0`.** Its CPU penalty is a CPU artifact -- attention parallelises
+well on a GPU and 15.6 GFLOPs@512 is mid-pack. On a Jetson it is the most accurate
+option at the resolution where it is most accurate, and resolution is the single
+biggest lever on small-object performance. If the budget stretches to a Jetson,
+that is where the accuracy ceiling actually moves.
 
-Orin Nano has a real CUDA GPU, so the CPU latency ranking above is close to
-irrelevant. SegFormer's penalty is largely a CPU artifact: attention parallelises
-well on a GPU, and its 15.6 GFLOPs@512 is mid-pack. Under TensorRT, SegFormer-B0
-and `deeplabv3plus_mnv3` both become plausible, and the resolution ceiling lifts --
-which matters more here than anywhere else, because **resolution is the single
-biggest lever on small-object accuracy** and the Jetson is the only target that can
-afford it.
+### Not recommended
 
-If the Jetson is affordable for the deployment, the honest engineering answer is
-that it removes the constraint doing the most damage to this project's accuracy
-ceiling.
+`unet_mnv3`: worst debris IoU, second-worst latency, most parameters, earliest
+overfit. Dominated on every axis that matters here.
 
-### Excluded regardless of score
-
-**`yolo11n_seg`** -- AGPL-3.0, and structurally unable to produce the metric. It
-has no water class, so it cannot compute coverage = debris/(debris+water) on its
-own; it would always need a second model for the denominator. It stays as a
-reference number for "how good is debris masking alone", nothing more. See
-`src/models/yolo_seg.py`.
+`yolo11n_seg`: AGPL-3.0 and structurally unable to produce coverage (no water
+class). Unchanged.
 
 ---
 
-## 6. Honest gaps in this document
+## 6. Honest gaps
 
-- **No accuracy at all yet.** Every recommendation above is provisional on cost.
-- **Wrong CPU.** Measured on x86-64 Windows; the target is aarch64 Linux. Re-run
-  `python -m bench.cost` on the Pi and set `is_target_device: true`.
-- **The Pi estimates are extrapolation**, not measurement, and the 5-15x range is
-  wide enough to change the conclusion at 512.
-- **No INT8 / quantized numbers.** Both the Hailo and the Jetson-TensorRT paths run
-  quantized in practice, and quantization can hurt a 1-3% class more than the
-  aggregate metrics suggest.
-- **`fast_scnn` is not accuracy-comparable** to anything here until someone
-  pretrains it, and nobody publishes those weights.
-- **Batch size 1, no competing load.** A deployed loop decoding video and holding a
-  cached water mask will see worse numbers than an idle benchmark.
-- **Latency varies 5-10% run to run.** Re-running `bench.cost` will move the third
-  digit; it will not move any ranking discussed here.
+- **One dataset, 300 images, 4 training locations.** These numbers describe
+  RIPTSeg, not Indonesian rivers. The domain gap in docs/datasets.md section 7 is
+  entirely unaddressed by this experiment.
+- **Test set is 50 images from one location.** Treat differences under ~0.03
+  debris IoU as noise: the SegFormer-vs-LR-ASPP gap (0.055) is probably real, the
+  LR-ASPP-vs-DeepLabv3+ gap (0.006) is not.
+- **Single seed.** No run-to-run variance was measured. On 200 images that
+  variance is plausibly comparable to the smaller gaps above.
+- **Latency is still x86, not the target.** The Pi projections remain
+  extrapolation. Re-run `python -m bench.cost` on the device.
+- **No INT8 numbers**, and both edge deployment paths need them.
+- **`clump` was collapsed into `debris` for every accuracy figure here.** The
+  4-class run scored debris IoU 0.10-0.13 because the heuristic left `debris` as a
+  thin residue. Any future reintroduction of `clump` needs real annotation, not
+  the area heuristic.
+- **`unet_effnet_lite` and `fast_scnn` have cost numbers but no accuracy**, so the
+  Hailo recommendation rests on architectural reasoning rather than measurement.
