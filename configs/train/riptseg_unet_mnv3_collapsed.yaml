@@ -27,7 +27,9 @@ data:
   # and fog are the expensive ones). Bigger batches and more workers, not a smaller
   # model, are what shorten this run.
   batch_size: 16
-  num_workers: 8
+  num_workers: 0   # 0, not 8: DataLoader worker spawn on this Windows box
+                   # resolved to the conda base interpreter, which has no CUDA torch,
+                   # so the loader never yielded and training hung at epoch 0.
   per_dataset_cap: 0     # only 200 train images; capping would do nothing
 
 loss:
@@ -67,5 +69,6 @@ aug:
   fog: 0.15
   low_light: 0.2
   motion_blur: 0.15
+
 
 
