@@ -1,0 +1,71 @@
+﻿# 3-class run: clump folded into debris (see configs/classes_collapsed.yaml).
+# Same everything else as riptseg_lraspp.yaml so the two are directly comparable.
+classes: configs/classes_collapsed.yaml
+# RIPTSeg-only baseline, LR-ASPP MobileNetV3.
+#
+#   python -m train.train --config configs/train/riptseg_lraspp.yaml
+#
+# 200 train / 50 val / 50 test images, split BY LOCATION: loc-level grouping means
+# val and test are sites the model has never seen. That is a deliberately hard
+# generalisation test and the numbers will sit well below what a random split
+# would report -- a random split over 300 near-duplicate frames from 6 fixed
+# cameras would mostly measure memorisation.
+
+name: riptseg_unet_mnv3_collapsed
+seed: 0
+device: null
+deterministic: false
+
+model:
+  name: unet_mnv3
+  args:
+    pretrained: true
+
+data:
+  size: 512
+  # The GPU sits idle here -- CPU augmentation is the bottleneck (sun flare, rain
+  # and fog are the expensive ones). Bigger batches and more workers, not a smaller
+  # model, are what shorten this run.
+  batch_size: 16
+  num_workers: 8
+  per_dataset_cap: 0     # only 200 train images; capping would do nothing
+
+loss:
+  name: dice+focal
+  weights: [0.5, 0.5]
+  dice:
+    smooth: 1.0
+  focal:
+    gamma: 2.0
+
+optimizer:
+  name: adamw
+  lr: 0.0006             # small dataset, short schedule -- a touch above default
+  weight_decay: 0.0001
+
+scheduler:
+  name: cosine
+
+train:
+  epochs: 120            # 25 steps/epoch, so this is still only ~3k steps
+  amp: true
+  grad_clip: 1.0
+  select_metric: iou_debris
+  early_stopping_patience: 30
+
+# Heavier than the generic default: 200 images from 4 fixed viewpoints overfit
+# almost immediately without it.
+aug:
+  affine: 0.7
+  brightness_contrast: 0.9
+  hsv: 0.9
+  gamma: 0.5
+  clahe: 0.3
+  sun_flare: 0.25
+  tone_curve: 0.3
+  rain: 0.15
+  fog: 0.15
+  low_light: 0.2
+  motion_blur: 0.15
+
+

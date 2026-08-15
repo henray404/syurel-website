@@ -1,0 +1,59 @@
+# End-to-end demo: the trained model over the held-out test location (loc1).
+#
+#   python -m inference.run --config configs/inference/riptseg_loc1.yaml \
+#       --source <loc1_test.mp4>
+#
+# This is a PIPELINE DEMONSTRATION on real frames, not a site deployment.
+#   * ROI is the whole frame. At a real site it would exclude bank, road and sky.
+#   * There is no structure polygon, so blockage alerts cannot fire. RIPTSeg's
+#     barrier sits differently at every location and is not surveyed here;
+#     inventing a polygon would produce alerts that mean nothing.
+#   * The source is 50 time-lapse stills played at 2 fps, minutes apart in reality.
+#     Optical flow will find no coherent motion between them and velocity will stay
+#     empty. That is correct behaviour on this input, not a failure -- velocity
+#     needs consecutive frames at camera rate (see src/inference/velocity.py).
+#
+# Coverage is the number this demonstrates, and it is a genuine ratio.
+
+site: riptseg_loc1
+device: null
+input_size: 512
+
+models:
+  trash:
+    name: lraspp_mnv3
+    checkpoint: runs/riptseg_lraspp_collapsed/best.pt
+    args: {}
+  water: null
+
+sampling:
+  trash_interval_s: 0.0    # every frame; there are only 50
+  water_interval_s: 0.0
+
+roi: null                  # whole frame
+structure: null            # no surveyed structure -- alerts stay off
+
+smoothing:
+  window: 10
+  method: median
+
+blockage:
+  area_threshold: 0.30
+  growth_threshold_per_min: 0.10
+  growth_window_s: 300.0
+  consecutive: 3
+
+velocity:
+  scale: 0.5
+  min_magnitude_px: 0.3
+  smooth_window: 10
+
+cross_section_width: 1.0
+
+homography:
+  enabled: false           # uncalibrated: flux stays a relative index
+
+output_dir: out
+output:
+  csv: true
+  sqlite: true
