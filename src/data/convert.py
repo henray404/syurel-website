@@ -49,12 +49,24 @@ def load_dataset_cfg(name: str) -> dict[str, Any]:
 def build_slot_lut(labels: list[str], cfg: dict[str, Any], schema: Schema) -> np.ndarray:
     """Map source label slots (1-based, 0 = unlabelled) to target class ids.
 
-    `unmapped` decides what happens to a source label the YAML does not mention.
-    Default is `error`: a dataset that silently gains a category should break the
-    build, not quietly turn into background.
+    Two independent policies:
+
+    `unmapped`   what happens to a source label the YAML does not mention.
+                 Default `error`: a dataset that silently gains a category should
+                 break the build, not quietly turn into background.
+
+    `unlabelled` what slot 0 -- pixels no annotation covers -- becomes.
+                 Default `background`, correct when the source annotates the whole
+                 frame. Set `ignore` when the source annotates only a region:
+                 RIPTSeg labels ~20% of each frame around the barrier, so calling
+                 the other 80% background would teach the model that real river
+                 water is background and poison the coverage denominator.
     """
     label_map: dict[str, str] = cfg.get("label_map") or {}
     policy = str(cfg.get("unmapped", "error"))
+    unlabelled = str(cfg.get("unlabelled", "background"))
+    if unlabelled not in ("background", "ignore"):
+        raise ValueError(f"{cfg['dataset']}: unlabelled must be background|ignore")
 
     missing = [name for name in labels if name not in label_map]
     if missing:
@@ -67,7 +79,8 @@ def build_slot_lut(labels: list[str], cfg: dict[str, Any], schema: Schema) -> np
         if policy not in ("background", "ignore"):
             raise ValueError(f"{cfg['dataset']}: unmapped must be error|background|ignore")
 
-    lut = np.zeros(256, dtype=np.uint8)  # slot 0 (unlabelled) -> background
+    lut = np.zeros(256, dtype=np.uint8)
+    lut[0] = schema.ignore_index if unlabelled == "ignore" else 0
     for i, name in enumerate(labels):
         slot = i + 1
         if name in label_map:

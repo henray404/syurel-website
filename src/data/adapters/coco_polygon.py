@@ -112,11 +112,38 @@ class CocoPolygonAdapter(Adapter):
         # groups by loc1..loc6 directory and RiSID by filename stem prefix.
         self.group_from = str(cfg.get("group_from", "parent"))
 
+        # RIPTSeg stores a bare basename in file_name while the images sit in
+        # loc1/..loc6/ subdirectories, so `image_root / file_name` resolves to
+        # nothing and every sample would be skipped in silence. Build a
+        # basename -> path index and fall back to it. Refuses on ambiguity rather
+        # than picking an arbitrary match.
+        self._by_name: dict[str, Path] = {}
+        if bool(cfg.get("recursive_images", False)):
+            dupes = []
+            for p in self.image_root.rglob("*"):
+                if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}:
+                    if p.name in self._by_name:
+                        dupes.append(p.name)
+                    self._by_name[p.name] = p
+            if dupes:
+                raise ValueError(
+                    f"{self.dataset}: recursive_images needs unique basenames, but "
+                    f"{len(dupes)} collide (e.g. {sorted(set(dupes))[:3]}). "
+                    f"Resolving by basename would silently pick the wrong file."
+                )
+        self._unresolved = 0
+
     def __len__(self) -> int:
         return len(self._images)
 
-    def _group_key(self, file_name: str) -> str:
-        p = Path(file_name)
+    def _resolve_image(self, file_name: str) -> Path | None:
+        direct = self.image_root / file_name
+        if direct.exists():
+            return direct
+        return self._by_name.get(Path(file_name).name)
+
+    def _group_key(self, rel: str) -> str:
+        p = Path(rel)
         if self.group_from == "parent":
             return p.parent.name or self.dataset
         if self.group_from == "stem_prefix":
@@ -136,9 +163,12 @@ class CocoPolygonAdapter(Adapter):
                 continue
 
             file_name = str(im["file_name"])
-            image_path = self.image_root / file_name
-            if not image_path.exists():
-                continue  # counted and reported in aggregate by convert.py
+            image_path = self._resolve_image(file_name)
+            if image_path is None:
+                # Counted, not silent: an adapter that quietly yields nothing is
+                # indistinguishable from an empty dataset.
+                self._unresolved += 1
+                continue
 
             # COCO width/height are sometimes wrong or absent; trust the file.
             width, height = int(im.get("width", 0)), int(im.get("height", 0))
@@ -149,15 +179,23 @@ class CocoPolygonAdapter(Adapter):
             def build(anns: list[tuple[int, Any]] = anns, size: tuple[int, int] = (width, height)) -> np.ndarray:
                 return _rasterise(anns, size, self.paint_order)
 
-            # Derive the id from the RELATIVE PATH, not the stem. RIPTSeg stores
-            # loc1/frame_000.jpg .. loc6/frame_000.jpg; a stem-based id collides
-            # across directories and silently drops 5/6 of the dataset.
-            rel = Path(file_name).with_suffix("").as_posix().strip("/")
+            # Derive id and group from the RESOLVED path, not from file_name.
+            # file_name may be a bare basename (RIPTSeg), in which case it carries
+            # no directory to group on; the resolved path always does. Using the
+            # stem alone would also collide across loc1..loc6.
+            rel = image_path.relative_to(self.image_root).with_suffix("").as_posix().strip("/")
             yield Sample(
                 sample_id=rel.replace("/", "__"),
                 image_path=image_path,
-                group=self._group_key(file_name),
+                group=self._group_key(rel),
                 labels=self.labels,
                 build_mask=build,
                 extra={"n_instances": len(anns)},
+            )
+
+        if self._unresolved:
+            print(
+                f"[{self.dataset}] WARNING: {self._unresolved} annotated image(s) not found "
+                f"under {self.image_root}. Set `recursive_images: true` if the images are "
+                f"in subdirectories."
             )

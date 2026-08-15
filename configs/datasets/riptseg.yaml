@@ -9,28 +9,39 @@ dataset: riptseg
 adapter: coco_polygon
 
 paths:
-  images: images
-  annotations: annotations/instances.json
+  images: unz/paper_dataset/images
+  annotations: unz/paper_dataset/annotations/all_annotations.json
 
-# IMPORTANT: these category strings are the expected ones, NOT verified against
-# the actual JSON (the zip was not downloaded during Phase 1). If they are wrong,
-# conversion fails loudly and prints the real category list -- that is the
-# `unmapped: error` policy doing its job. Fix the keys here; never touch code.
+# VERIFIED against the real all_annotations.json on 2026-08-13.
+# Category ids 1..4: floating_trash_in_system (2322 anns),
+# floating_trash_outside_system (448), water (747), barrier (870). 4387 total,
+# which matches the figure quoted in docs/datasets.md.
 label_map:
   water: water
   barrier: background          # structure is a config polygon at inference, not a class
-  trash in-system: debris
-  trash out-system: debris
+  floating_trash_in_system: debris
+  floating_trash_outside_system: debris
 unmapped: error
+
+# MEASURED: only ~20.6% of each frame is annotated (range 14.6-22.6%) -- RIPTSeg
+# labels a fixed region around the barrier, not the whole image. Water is just 17%
+# of frame pixels, which is impossible for river footage, so the unannotated 80%
+# demonstrably contains real water and debris. Calling it `background` would train
+# the model that river water is background and corrupt the coverage denominator.
+unlabelled: ignore
 
 # Later entries win on overlap. Debris last: a bottle on water is debris.
 paint_order:
   - water
   - barrier
-  - trash in-system
-  - trash out-system
+  - floating_trash_in_system
+  - floating_trash_outside_system
 
-group_from: parent             # loc1..loc6 directories
+# file_name in the COCO JSON is a bare basename while images live in
+# images/loc1..loc6/, so the basename index is required -- without it every image
+# fails to resolve. Basenames verified unique across all 300.
+recursive_images: true
+group_from: parent             # loc1..loc6 directories, 50 images each
 water_source: labelled
 
 clump:

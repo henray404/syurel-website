@@ -186,6 +186,84 @@ def test_split_ratios_converge_when_groups_are_plentiful() -> None:
         assert abs(len(out[s]) / total - want) < 0.05, (s, len(out[s]) / total)
 
 
+def _write_coco(tmp_path, file_names, subdirs, categories=("t",)):
+    """Synthetic COCO where file_name is a BARE BASENAME, as RIPTSeg ships it."""
+    import json
+
+    images, anns = [], []
+    for i, (fn, sub) in enumerate(zip(file_names, subdirs), start=1):
+        p = tmp_path / "images" / sub / fn
+        p.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (32, 24)).save(p)
+        images.append({"id": i, "file_name": fn, "width": 32, "height": 24})
+        anns.append(
+            {"id": i, "image_id": i, "category_id": 1, "segmentation": [[0, 0, 8, 0, 8, 8]]}
+        )
+
+    ann_dir = tmp_path / "annotations"
+    ann_dir.mkdir(parents=True, exist_ok=True)
+    (ann_dir / "i.json").write_text(
+        json.dumps(
+            {
+                "images": images,
+                "annotations": anns,
+                "categories": [{"id": 1, "name": categories[0]}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "dataset": "t",
+        "adapter": "coco_polygon",
+        "paths": {"images": "images", "annotations": "annotations/i.json"},
+    }
+
+
+def test_bare_basename_resolves_into_subdirectories(tmp_path) -> None:
+    """Regression: RIPTSeg's file_name carries no directory while images live in
+    loc1..loc6, so `image_root / file_name` resolved to nothing and ALL 300 images
+    were skipped in silence."""
+    from data.adapters.coco_polygon import CocoPolygonAdapter
+
+    cfg = _write_coco(tmp_path, ["a.jpg", "b.jpg", "c.jpg"], ["loc1", "loc2", "loc3"])
+
+    without = list(CocoPolygonAdapter(cfg, tmp_path).samples())
+    assert without == [], "sanity: without recursive_images nothing resolves"
+
+    cfg["recursive_images"] = True
+    got = list(CocoPolygonAdapter(cfg, tmp_path).samples())
+    assert len(got) == 3, got
+    # Group must come from the RESOLVED path, since file_name has no directory.
+    assert {s.group for s in got} == {"loc1", "loc2", "loc3"}
+    assert {s.sample_id for s in got} == {"loc1__a", "loc2__b", "loc3__c"}
+
+
+def test_recursive_lookup_refuses_ambiguous_basenames(tmp_path) -> None:
+    """Resolving by basename is only safe while basenames are unique."""
+    from data.adapters.coco_polygon import CocoPolygonAdapter
+
+    cfg = _write_coco(tmp_path, ["dup.jpg", "dup.jpg"], ["loc1", "loc2"])
+    cfg["recursive_images"] = True
+    with pytest.raises(ValueError, match="unique basenames"):
+        CocoPolygonAdapter(cfg, tmp_path)
+
+
+def test_unlabelled_can_be_ignored_instead_of_background(schema: Schema) -> None:
+    """Regression: RIPTSeg annotates only ~20% of each frame. Mapping the rest to
+    background taught the model that real river water is background."""
+    cfg = {"dataset": "x", "label_map": {"water": "water"}}
+
+    lut_bg = build_slot_lut(["water"], cfg, schema)
+    assert lut_bg[0] == BACKGROUND, "default must stay background"
+
+    lut_ig = build_slot_lut(["water"], dict(cfg, unlabelled="ignore"), schema)
+    assert lut_ig[0] == schema.ignore_index
+    assert lut_ig[1] == WATER, "mapped labels are unaffected"
+
+    with pytest.raises(ValueError, match="unlabelled must be"):
+        build_slot_lut(["water"], dict(cfg, unlabelled="nonsense"), schema)
+
+
 def test_coco_sample_ids_do_not_collide_across_directories(tmp_path) -> None:
     """Regression: sample_id came from the filename stem, so RIPTSeg's
     loc1/frame_000.jpg .. loc6/frame_000.jpg all collapsed onto one id and 5/6 of
