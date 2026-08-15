@@ -1,0 +1,19 @@
+# Test-set evaluation of the COLLAPSED (3-class) RIPTSeg model.
+#
+#   python -m bench.accuracy --config configs/bench_riptseg.yaml --split test
+#
+# `classes` must match what the checkpoint was trained with -- scoring a collapsed
+# model against the 4-class schema would count every clump pixel as a debris error.
+classes: configs/classes_collapsed.yaml
+
+is_target_device: false
+resolutions: [640, 512, 416]
+
+models:
+  lraspp_mnv3:
+    run: riptseg_lraspp_collapsed   # checkpoint at runs/<run>/best.pt
+    license: Apache-2.0 (torchvision)
+    note: >
+      Trained on RIPTSeg only, 200 images from loc2/3/5/6. Test split is loc1,
+      a location never seen during training.
+    args: {}

@@ -136,7 +136,11 @@ def evaluate(model, loader, loss_fn, device, schema, n_classes: int) -> dict[str
 
 def train(config_path: Path, resume: bool = False, smoke: bool = False) -> dict[str, Any]:
     cfg = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
-    schema = load_schema()
+    # A run may override the class schema (e.g. configs/classes_collapsed.yaml to
+    # fold clump into debris). Kept in the run's own config rather than mutating
+    # the global classes.yaml, so two runs with different schemas stay reproducible
+    # side by side.
+    schema = load_schema(REPO_ROOT / cfg["classes"]) if cfg.get("classes") else load_schema()
     n_classes = len(schema.names)
 
     seed = int(cfg.get("seed", 0))

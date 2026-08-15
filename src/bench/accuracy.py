@@ -89,8 +89,11 @@ def run(
     batch_size: int = 8,
     workers: int = 0,
 ) -> dict[str, Any]:
-    schema = load_schema()
     cfg = yaml.safe_load(Path(config).read_text(encoding="utf-8"))
+    # Match the schema the checkpoint was TRAINED with. Evaluating a collapsed
+    # (clump->debris) model against the 4-class schema would score every clump
+    # pixel as a debris error and report nonsense.
+    schema = load_schema(REPO_ROOT / cfg["classes"]) if cfg.get("classes") else load_schema()
     resolutions = [int(r) for r in cfg.get("resolutions", [640, 512, 416])]
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -111,13 +114,16 @@ def run(
             )
             continue
 
-        ckpt = RUNS_ROOT / name / "best.pt"
+        # A run directory is named by the training config, which is usually not the
+        # model name (runs/riptseg_lraspp holds an lraspp_mnv3). `run:` maps them.
+        run_dir = str(spec.get("run", name))
+        ckpt = RUNS_ROOT / run_dir / "best.pt"
         if not ckpt.exists():
             entries.append(
                 {
                     "name": name,
                     "status": "PENDING",
-                    "reason": f"no checkpoint at runs/{name}/best.pt -- train it first",
+                    "reason": f"no checkpoint at runs/{run_dir}/best.pt -- train it first",
                     "by_resolution": {},
                 }
             )

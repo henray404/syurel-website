@@ -1,0 +1,31 @@
+# 3-class variant: clump folded into debris.
+#
+# Point a training/eval config at this file instead of classes.yaml:
+#
+#   classes: configs/classes_collapsed.yaml
+#
+# WHY THIS EXISTS. `clump` in the converted data is not annotation -- it is the
+# connected-component heuristic in src/data/clump.py. On RIPTSeg it swallows most
+# of the foreground (clump 14.9% of labelled pixels vs debris 2.4%), because the
+# dataset is footage of dense trash mats piled against an interceptor barrier,
+# which is exactly the condition the heuristic promotes. That leaves `debris` as a
+# thin leftover class whose IoU says more about the threshold than about the model.
+#
+# For the question the project actually asks -- what fraction of the water surface
+# is covered by floating debris -- the split is noise. Collapsing restores the
+# metric that matters and matches the documented fallback in
+# docs/annotation_guideline.md section 4.
+#
+# The collapse is a load-time LUT, so the PNGs on disk are untouched and this is
+# reversible by pointing back at classes.yaml.
+
+classes:
+  - { id: 0, name: background }
+  - { id: 1, name: water }
+  - { id: 2, name: debris }
+  - { id: 3, name: clump }
+
+ignore_index: 255
+
+collapse:
+  clump: debris

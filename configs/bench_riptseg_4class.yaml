@@ -1,0 +1,17 @@
+# Test-set evaluation of the 4-class RIPTSeg model (debris and clump separate).
+#
+#   python -m bench.accuracy --config configs/bench_riptseg_4class.yaml --split test
+#
+# Kept as the comparison point for configs/bench_riptseg.yaml. `clump` here is the
+# connected-component heuristic, not annotation, so its IoU measures the threshold
+# as much as it measures the model -- read the collapsed numbers as the headline.
+
+is_target_device: false
+resolutions: [640, 512, 416]
+
+models:
+  lraspp_mnv3:
+    run: riptseg_lraspp             # checkpoint at runs/<run>/best.pt
+    license: Apache-2.0 (torchvision)
+    note: 4-class schema; debris is the thin residue the clump heuristic left behind.
+    args: {}
