@@ -15,6 +15,10 @@
 # own config.yaml -- the source config in configs/train/ IS committed.
 /runs/
 
+# Inference time series. Regenerable from a checkpoint plus the source video, and
+# at a real deployment it grows without bound.
+/out/
+
 # Benchmark temp checkpoints. bench/*.json IS committed -- it is the evidence
 # behind the numbers in docs/model_comparison.md.
 /bench/.*.tmp.pt
