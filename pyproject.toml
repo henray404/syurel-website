@@ -41,6 +41,11 @@ bench = [
 yolo = [
     "ultralytics>=8.3",
 ]
+# Interactive model tester (feature/gui branch). A separate extra so a Pi install
+# never pulls a web stack it will not run.
+gui = [
+    "gradio>=4.44",
+]
 dev = [
     "pytest>=8.0",
 ]
