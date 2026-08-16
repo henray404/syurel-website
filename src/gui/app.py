@@ -3,10 +3,11 @@
     uv run python -m gui.app
     uv run python -m gui.app --share      # public link, expires in 72h
 
-Three tabs:
+Four tabs:
   Segment   one image -> overlay + coverage, per model
   Compare   the same image through every trained checkpoint at once
   Video     a clip -> per-frame coverage time series + CSV
+  Camera    live UVC capture with real exposure control, then segment a frame
 
 Discovers checkpoints by scanning runs/ for best.pt, so a model appears here the
 moment it finishes training. No config to keep in sync.
@@ -31,6 +32,7 @@ import torch
 import yaml
 
 from data.schema import BACKGROUND, CLUMP, DEBRIS, REPO_ROOT, WATER, load_schema
+from gui import camera
 from models import build_model
 
 RUNS = REPO_ROOT / "runs"
@@ -217,6 +219,45 @@ def build_ui():
         )
         return last, str(out), summary
 
+    cam = camera.Camera()
+
+    def stream_preview():
+        """Yield frames until the user presses Stop (Gradio cancels the generator).
+
+        Capped at ~15 fps: the preview exists to judge exposure, and running it
+        flat out competes with inference for the same device and CPU.
+        """
+        if not cam.is_open:
+            yield None
+            return
+        while cam.is_open:
+            f = cam.frame()
+            if f is not None:
+                yield f
+            time.sleep(1 / 15)
+
+    def run_camera(run, size, dev):
+        if not cam.is_open:
+            return None, "Open a camera first."
+        frame = cam.frame()
+        if frame is None:
+            return None, "Camera delivered no frame."
+        net, _ = load(run, runs[run], dev)
+        mask, ms = predict(net, frame, int(size), dev)
+        s = stats(mask)
+        # Clipping check: an overexposed frame destroys the water/debris boundary
+        # before the model ever sees it, and a coverage number off a blown-out
+        # frame looks perfectly valid while meaning nothing.
+        blown = float((frame >= 250).all(axis=2).mean())
+        warn = ""
+        if blown > 0.02:
+            warn = (
+                f"\n\n**{blown*100:.1f}% of this frame is pure white (clipped).** "
+                "Detail there is gone -- no model can recover it. Lower Exposure or Gain "
+                "and capture again before trusting this number."
+            )
+        return overlay(frame, mask), fmt(s, ms) + warn
+
     with gr.Blocks(title="Syurell - river debris segmentation") as demo:
         gr.Markdown(
             "# Syurell - river debris segmentation\n"
@@ -263,6 +304,154 @@ def build_ui():
                     vcsv = gr.File(label="Coverage time series (CSV)")
                     vmd = gr.Markdown()
             vbtn.click(run_video, [vid, vrun, vsize, vdev, vstride], [vlast, vcsv, vmd])
+
+        with gr.Tab("Camera"):
+            gr.Markdown(
+                "Live capture through **OpenCV**, not the browser's webcam widget -- that "
+                "is the whole point of this tab. The browser develops its own frame with "
+                "its own auto-exposure, which no Python setting can reach, which is why a "
+                "camera that looks right in its official app can look blown out in a web "
+                "page. Here exposure, gain and white balance are actually ours to set.\n\n"
+                "Devices show as bare indices: OpenCV cannot read device names on Windows. "
+                "Open one and look at the preview to tell which is which."
+            )
+
+            with gr.Row():
+                with gr.Column(scale=1):
+                    dev_list = gr.Dropdown(choices=[], value=None, label="Camera device")
+                    scan_btn = gr.Button("Scan for cameras")
+                    res_dd = gr.Dropdown(
+                        camera.RESOLUTIONS, value=camera.RESOLUTIONS[0], label="Resolution"
+                    )
+                    with gr.Row():
+                        open_btn = gr.Button("Open", variant="primary")
+                        close_btn = gr.Button("Close")
+                    cam_status = gr.Markdown("No camera open.")
+
+                    gr.Markdown("### Exposure")
+                    fix_btn = gr.Button("Fix overexposure", variant="secondary")
+                    auto_exp = gr.Checkbox(value=False, label="Auto exposure")
+                    probe_btn = gr.Button("Measure exposure sweep")
+
+                    gr.Markdown("### Manual controls")
+                    sliders = {}
+                    for cname, spec in camera.CONTROLS.items():
+                        sliders[cname] = gr.Slider(
+                            spec["lo"], spec["hi"], step=spec["step"],
+                            value=spec["lo"], label=spec["label"],
+                        )
+                    auto_wb = gr.Checkbox(value=True, label="Auto white balance")
+                    readback_btn = gr.Button("Read values back from camera")
+
+                with gr.Column(scale=2):
+                    preview = gr.Image(label="Live preview", height=380)
+                    with gr.Row():
+                        stream_btn = gr.Button("Start preview", variant="primary")
+                        stop_btn = gr.Button("Stop")
+                    ctrl_md = gr.Markdown()
+
+                    gr.Markdown("### Capture and segment")
+                    with gr.Row():
+                        crun = gr.Dropdown(names, value=default, label="Model run")
+                        csize2 = gr.Dropdown([416, 512, 640, 768], value=640, label="Input size")
+                        cdev2 = gr.Dropdown(devices, value=devices[0], label="Device")
+                    grab_btn = gr.Button("Capture frame and segment", variant="primary")
+                    cam_overlay = gr.Image(label="Overlay")
+                    cam_md = gr.Markdown()
+
+            ctrl_names = list(camera.CONTROLS)
+
+            def do_scan():
+                devs = camera.list_devices()
+                if not devs:
+                    return gr.update(choices=[], value=None), (
+                        "No camera found. Check it is plugged in, in webcam mode, and not "
+                        "held open by another app -- the official Insta360 app will hold it."
+                    )
+                labels = [d.label for d in devs]
+                return gr.update(choices=labels, value=labels[0]), (
+                    f"Found {len(devs)} camera(s). Open one to see which is which."
+                )
+
+            def do_open(label, res):
+                if not label:
+                    return "Pick a device first (press **Scan for cameras**)."
+                return cam.open(int(str(label).split()[0]), res)
+
+            def do_readback():
+                vals = cam.read_all()
+                if not vals:
+                    return [gr.update() for _ in ctrl_names] + ["Camera is closed."]
+                rows = "\n".join(f"| {n} | {vals[n]:g} |" for n in ctrl_names)
+                return [gr.update(value=vals[n]) for n in ctrl_names] + [
+                    f"Values now on the device:\n\n| control | value |\n|---|---|\n{rows}"
+                ]
+
+            def make_setter(cname: str):
+                def _set(value):
+                    got = cam.set_control(cname, value)
+                    if got is None:
+                        return "Camera is closed -- open it before changing controls."
+                    if abs(got - float(value)) > 1e-6:
+                        return (
+                            f"`{cname}`: asked {float(value):g}, driver holds **{got:g}**. "
+                            "It clamped or ignored the request; the readback is the real value."
+                        )
+                    return f"`{cname}` = {got:g}"
+                return _set
+
+            def do_fix_overexposure():
+                """Lock exposure at a value MEASURED against the current scene.
+
+                A fixed outdoor camera wants a LOCKED exposure. Auto-exposure chases
+                clouds and glare, so the same debris changes brightness frame to frame --
+                awkward to watch, worse for a model trained on stable exposure, and it
+                makes coverage numbers incomparable over time.
+
+                The value is measured rather than hardcoded on purpose. A fixed guess is
+                worthless across scenes: on this hardware exposure -7 gives a mean
+                luminance of 0.8 (effectively black) in one room and is reasonable
+                outdoors. Only a sweep against the actual scene knows which.
+                """
+                if not cam.is_open:
+                    return [gr.update() for _ in ctrl_names] + ["Open the camera first."]
+                msgs = [cam.set_auto_exposure(False)]
+                best = camera.best_exposure(cam)
+                if best is None:
+                    msgs.append("Exposure sweep captured no frames; nothing changed.")
+                else:
+                    value, lum = best
+                    got = cam.set_control("exposure", value)
+                    msgs.append(
+                        f"Exposure locked at **{got:g}** (mean luminance {lum:.0f}, "
+                        "closest to mid-grey of the values tried)."
+                    )
+                vals = cam.read_all()
+                return [gr.update(value=vals[n]) for n in ctrl_names] + [
+                    "\n\n".join(msgs)
+                    + "\n\nStill not right? Nudge Exposure one step at a time -- mid-grey is "
+                    "a starting point, not a calibration, and bright sky in frame biases it "
+                    "dark. Locked and slightly off beats auto and hunting: consistent "
+                    "exposure is what makes coverage comparable between frames."
+                ]
+
+            scan_btn.click(do_scan, None, [dev_list, cam_status])
+            open_btn.click(do_open, [dev_list, res_dd], cam_status)
+            close_btn.click(lambda: cam.close(), None, cam_status)
+
+            for cname in ctrl_names:
+                sliders[cname].release(make_setter(cname), sliders[cname], ctrl_md)
+
+            auto_exp.change(lambda v: cam.set_auto_exposure(bool(v)), auto_exp, ctrl_md)
+            auto_wb.change(lambda v: cam.set_auto_wb(bool(v)), auto_wb, ctrl_md)
+            readback_btn.click(do_readback, None, [sliders[n] for n in ctrl_names] + [ctrl_md])
+            fix_btn.click(do_fix_overexposure, None, [sliders[n] for n in ctrl_names] + [ctrl_md])
+            probe_btn.click(lambda: camera.exposure_probe(cam), None, ctrl_md)
+
+            ev = stream_btn.click(stream_preview, None, preview)
+            stop_btn.click(None, None, None, cancels=[ev])
+
+            grab_btn.click(run_camera, [crun, csize2, cdev2], [cam_overlay, cam_md])
 
     return demo
 
