@@ -15,8 +15,20 @@ if not exist "src\gui\app.py" (
     exit /b 1
 )
 
+REM Call the venv interpreter by path instead of relying on `python` from PATH.
+REM A plain cmd.exe window has no venv on PATH and picks up miniconda or the
+REM system Python, neither of which has this project's dependencies.
+set "PY=%~dp0.venv\Scripts\python.exe"
+
+if not exist "%PY%" (
+    echo Virtualenv not found at %PY%
+    echo Create it with:  uv venv
+    pause
+    exit /b 1
+)
+
 set PYTHONPATH=src
-python -m gui.app %*
+"%PY%" -m gui.app %*
 
 REM Keep the window open so a traceback is readable when double-clicked.
 if errorlevel 1 pause
