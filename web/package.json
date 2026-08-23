@@ -1,0 +1,24 @@
+{
+  "name": "syurell-web",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 8000",
+    "build": "next build",
+    "start": "next start -p 8000",
+    "test": "vitest run"
+  },
+  "//better-sqlite3": "v13, not v11: it is the first line with a prebuilt binary for Node 24 (ABI 137). v11 falls back to compiling from source, which needs Visual Studio build tools this machine does not have.",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
