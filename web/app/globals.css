@@ -1,0 +1,22 @@
+:root {
+  --ground: #f2f4f5;
+  --surface: #ffffff;
+  --ink: #12212b;
+  --soft: #4a5c67;
+  --rule: #d3dade;
+  --clear: #2e7d5b;
+  --watch: #b07d22;
+  --blocked: #b04a22;
+  --unknown: #7c8c96;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
