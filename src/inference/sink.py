@@ -73,6 +73,10 @@ class TimeSeriesSink:
 
         if self.sqlite_enabled:
             self._conn = sqlite3.connect(self._db_path)
+            # WAL lets the dashboard read while inference writes. In the default
+            # rollback-journal mode a reader blocks the writer, so every open
+            # page would stall this loop.
+            self._conn.execute("PRAGMA journal_mode=WAL")
             cols = ", ".join(f"{name} {typ}" for name, typ in COLUMNS)
             self._conn.execute(f"CREATE TABLE IF NOT EXISTS observations ({cols})")
             # The rainfall join is by time, and a dashboard reads recent rows per

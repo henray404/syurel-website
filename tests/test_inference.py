@@ -213,6 +213,18 @@ def test_sink_writes_utc_and_preserves_nulls(tmp_path) -> None:
     assert rows[1][2] is None, "a missing coverage must stay NULL, not become 0.0"
 
 
+def test_sink_uses_wal_journal_mode(tmp_path) -> None:
+    """The dashboard reads this file while inference writes it.
+
+    In the default rollback-journal mode a reader blocks the writer, which would
+    stall the inference loop every time someone opens a page.
+    """
+    with TimeSeriesSink(tmp_path / "s", site="a") as s:
+        mode = s._conn.execute("PRAGMA journal_mode").fetchone()[0]
+
+    assert mode.lower() == "wal", f"expected wal, got {mode!r}"
+
+
 def test_sink_appends_without_duplicating_the_csv_header(tmp_path) -> None:
     out = tmp_path / "s"
     with TimeSeriesSink(out, site="a") as s:
