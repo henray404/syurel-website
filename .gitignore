@@ -32,3 +32,17 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+
+# Firmware credentials and the operator's phone number.
+#
+# The negation is load-bearing: `config_secrets.h` also matches
+# `config_secrets.h.example` as a prefix, so without it the template everyone
+# needs in order to configure the firmware is silently ignored too.
+firmware/esp32/include/config_secrets.h
+!firmware/esp32/include/config_secrets.h.example
+
+# Roboflow API key and any other local secrets
+/.env
+
+# Firmware test harness build artifacts
+tests/firmware/*.exe
