@@ -1,0 +1,49 @@
+{
+  "_baca_ini_dulu": [
+    "SEMUA ANGKA DI SINI TEBAKAN. Belum ada satu pun yang diukur di lokasi.",
+    "Selama status = UNCALIBRATED, web menandai setiap hasil fisika sebagai perkiraan",
+    "kasar dan TIDAK menampilkannya sebagai peringatan. Jangan hapus tanda itu sebelum",
+    "kolom _sumber di bawah terisi 'ukur' semua.",
+    "",
+    "JSON, bukan YAML, karena berkas ini dibaca dua sisi: Python (src/physics.py) dan",
+    "web (web/lib/fisika.ts). Web tidak punya parser YAML tanpa menambah dependensi,",
+    "dan dua salinan angka yang sama adalah cara paling pasti membuatnya berbeda."
+  ],
+
+  "status": "UNCALIBRATED",
+
+  "site": {
+    "nama": "Bendung gerak (belum disurvei)",
+    "lat": null,
+    "lon": null,
+    "adm4": null,
+    "_catatan": "lat/lon wajib untuk Open-Meteo; adm4 (kode wilayah desa, mis. 35.15.09.2003) wajib untuk BMKG. Ambil koordinat saat survei dengan GPS HP, cocokkan adm4 dari kode wilayah Kemendagri."
+  },
+
+  "gate": {
+    "b_m": 2.0,
+    "a_m": 1.0,
+    "Cd": 0.61,
+    "h_bersih_m": 0.8,
+    "z_jalan_m": 1.6,
+
+    "_sumber": {
+      "b_m": "tebak — ukur lebar bukaan pintu dengan meteran",
+      "a_m": "tebak — tinggi bukaan; tanya operator bukaan normalnya berapa",
+      "Cd": "literatur, 0.61 untuk aliran bebas (rencana_penelitian.md 5.8). Lebih baik dikalibrasi dari miniatur, eksperimen E1",
+      "h_bersih_m": "tebak — tinggi muka air hulu di atas bukaan saat pintu BERSIH. Ini garis dasar; salah di sini menggeser semua hasil",
+      "z_jalan_m": "tebak — tinggi muka air saat jalan mulai tergenang, dari datum yang sama dengan h_bersih_m"
+    }
+  },
+
+  "kalibrasi_kamera": {
+    "bias": 0.0,
+    "skala": 1.0,
+    "_catatan": "BF = skala * accumulation_frac + bias. Identitas sampai eksperimen E2 dijalankan: pelat dengan luas bukaan diketahui, dibandingkan dengan yang dilaporkan kamera. Kalau kamera melapor 24% saat sebenarnya 31%, koreksinya masuk di sini — dan itu penting, karena 1/(1-BF)^2 mengkuadratkan kesalahannya."
+  },
+
+  "hujan": {
+    "sumber_utama": "tipping_bucket",
+    "_catatan": "Tipping bucket adalah kebenaran lapangan DI TITIK INI. Open-Meteo petaknya 9-25 km sementara sel hujan konvektif tropis lebarnya 2-5 km, jadi angkanya sinyal regional, bukan hujan di bendungan. Dipakai untuk menambal lubang dan sebagai pembanding, bukan pengganti."
+  }
+}

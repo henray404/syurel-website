@@ -1,0 +1,102 @@
+# RIPTSeg + IWHR, SegFormer-B0, 640 px, 3-class (clump folded into debris).
+#
+#   python -m train.train --config configs/train/combined_segformer_b0_640.yaml
+#
+# Three levers stacked at once, each justified by a measurement already in this
+# repo rather than by intuition:
+#
+#   1. ARCHITECTURE. LR-ASPP is the weakest of the four benchmarked backbones.
+#      Best val iou_debris on RIPTSeg alone:
+#          segformer_b0   0.6917   <- this file
+#          deeplabv3plus  0.6832
+#          unet_mnv3      0.6809
+#          lraspp         0.6304
+#      SegFormer-B0 on RIPTSeg alone already beats combined LR-ASPP (0.6601).
+#
+#   2. DATA. Adding IWHR lifted LR-ASPP from 0.6304 to 0.6601 (+4.7%) in an
+#      otherwise identical run, so the mix is worth carrying over.
+#
+#   3. RESOLUTION. docs/model_comparison.md measures SegFormer-B0 test debris IoU
+#      at 0.4164 / 0.4586 / 0.4743 for 416 / 512 / 640. The +2.7% from 512 to 640
+#      lands exactly where this project needs it: the site's debris is small,
+#      scattered sachets and fragments, and low resolution erases those first.
+#
+# The three do not simply add up -- resolution and capacity partly overlap -- so
+# treat any total as an upper bound, not a forecast.
+classes: configs/classes_collapsed.yaml
+
+name: combined_segformer_b0_640
+seed: 0
+device: null
+deterministic: false
+
+model:
+  name: segformer_b0
+  args:
+    pretrained: true
+
+data:
+  # 640, against 512 everywhere else in configs/train/. This is the one setting here
+  # that costs real wall clock: SegFormer already runs ~6x slower than LR-ASPP per
+  # docs/model_comparison.md, and 640 is another ~1.6x the pixels of 512.
+  size: 640
+
+  # 8, not 16. SegFormer-B0 at 640 px holds far more activation memory than LR-ASPP
+  # at 512, and this GPU has 8 GB. Halving the batch is cheap insurance against an
+  # OOM three hours into an unattended run.
+  batch_size: 8
+
+  # 8 workers. riptseg_segformer_b0_collapsed.yaml sets 0 and documents a Windows
+  # spawn failure (workers resolving to the conda base interpreter, which has no
+  # CUDA torch, so the loader never yielded). That did not recur for
+  # combined_lraspp_collapsed.yaml when launched detached via PowerShell
+  # Start-Process, which is how this run is meant to be started. Drop to 0 if the
+  # loader ever hangs at epoch 0 again.
+  num_workers: 8
+
+  # Same reasoning as combined_lraspp_collapsed.yaml: the pool is 200 RIPTSeg
+  # against 2510 IWHR, so without a cap each epoch is ~93% IWHR and the only
+  # ground-truth water in the project drowns under SAM pseudo-labels.
+  #     riptseg  min(200,  400 * 1.0) = 200
+  #     iwhr     min(2510, 400 * 0.7) = 280
+  per_dataset_cap: 400
+
+loss:
+  name: dice+focal
+  weights: [0.5, 0.5]
+  dice:
+    smooth: 1.0
+  focal:
+    gamma: 2.0
+
+optimizer:
+  name: adamw
+  lr: 0.0006
+  weight_decay: 0.0001
+
+scheduler:
+  name: cosine
+
+train:
+  # 480 samples/epoch at batch 8 -> 60 steps/epoch. Both earlier SegFormer and
+  # LR-ASPP runs stopped early well before 120, so this ceiling is unlikely to bind.
+  epochs: 120
+  amp: true
+  grad_clip: 1.0
+  select_metric: iou_debris
+  early_stopping_patience: 30
+
+# Unchanged from every other run in this directory. Three variables already move in
+# this config; changing augmentation too would make the result uninterpretable.
+aug:
+  affine: 0.7
+  brightness_contrast: 0.9
+  hsv: 0.9
+  gamma: 0.5
+  clahe: 0.3
+  sun_flare: 0.25
+  tone_curve: 0.3
+  rain: 0.15
+  fog: 0.15
+  low_light: 0.2
+  motion_blur: 0.15

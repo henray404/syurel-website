@@ -36,6 +36,15 @@ describe("openDb", () => {
     expect(table).toBeTruthy();
   });
 
+  it("waits for a busy writer instead of failing the ingest", () => {
+    // Regression: the inference loop writes ~25 rows/s, so an ingest POST that
+    // arrived between two of them got "database is locked" and a 503. The
+    // firmware retried the same batch forever and nothing was ever stored.
+    const d = freshDb();
+    const timeout = d.pragma("busy_timeout", { simple: true });
+    expect(Number(timeout)).toBeGreaterThanOrEqual(1000);
+  });
+
   it("rejects a second row with the same (device, ts_epoch)", () => {
     const d = freshDb();
     const sql = "INSERT OR IGNORE INTO esp_readings (device, ts_utc, ts_epoch) VALUES (?, ?, ?)";

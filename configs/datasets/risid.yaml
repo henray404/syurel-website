@@ -9,21 +9,32 @@ dataset: risid
 adapter: coco_polygon
 
 paths:
-  images: images
+  # VERIFIED after unzipping on 2026-08-18: images.zip expands to a single
+  # `images/` directory holding all 7356 PNGs, so the path is unz/images, not
+  # images. The annotation JSONs download beside the archive rather than inside
+  # it, so that one stays at the dataset root.
+  images: unz/images
   # 2-category file: the schema merges everything into `debris` anyway.
   annotations: annotations_2cat.json
 
-# "Non-plastics" is mostly wood and vegetation. Under the `debris` schema that is
+# `non_pla` is mostly wood and vegetation. Under the `debris` schema that is
 # in-class, not background -- decision 1 in docs/datasets.md s9, and the whole
 # reason the class was renamed from `trash`.
+#
+# VERIFIED against the real annotations_2cat.json on 2026-08-18, and the original
+# setting was WRONG. The file declares `categories: [(1, 'pla'), (2, 'non_pla')]`,
+# not the "Plastics"/"Non-plastics" spelled out in the paper. With
+# `unmapped: error` that mismatch would have aborted conversion on the first
+# annotation, and coco_polygon.py validates paint_order against the real category
+# names too -- both loud failures, which is exactly what those settings are for.
 label_map:
-  Plastics: debris
-  Non-plastics: debris
+  pla: debris
+  non_pla: debris
 unmapped: error
 
 paint_order:
-  - Non-plastics
-  - Plastics
+  - non_pla
+  - pla
 
 # VERIFIED against the real filenames on 2026-08-15, and the original setting was
 # WRONG. Files are named "<video>_<frame>_<n>.png", e.g.

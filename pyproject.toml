@@ -49,6 +49,12 @@ gui = [
 dev = [
     "pytest>=8.0",
 ]
+# Pull datasets straight from a Roboflow project via scripts/download.py.
+# Separate extra: only needed on the machine that runs the download, and
+# keeps the base install free of yet another network-calling SDK.
+roboflow = [
+    "roboflow>=1.1",
+]
 
 # WARNING: `uv sync` WILL UNINSTALL A LOCALLY-INSTALLED CUDA TORCH.
 # The CUDA wheels were installed from local files, so they are not in uv.lock and

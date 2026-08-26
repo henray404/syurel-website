@@ -7,6 +7,7 @@ pixel ratio, or an alert that fires on a single noisy frame.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import numpy as np
@@ -22,6 +23,17 @@ from inference.metrics import (
     area_flux,
     frame_metrics,
 )
+from inference.control import (
+    polygon_area,
+    read_polygons,
+    read_request,
+    valid_polygon,
+    write_polygons,
+    write_request,
+    write_status,
+)
+from inference.preview import LivePreview, PreviewParams, replace_with_retry
+from inference.run import is_live_source
 from inference.sink import TimeSeriesSink
 
 SHAPE = (100, 100)
@@ -223,6 +235,177 @@ def test_sink_uses_wal_journal_mode(tmp_path) -> None:
         mode = s._conn.execute("PRAGMA journal_mode").fetchone()[0]
 
     assert mode.lower() == "wal", f"expected wal, got {mode!r}"
+
+
+def test_live_sources_are_recognised_by_kind_not_by_reported_position() -> None:
+    """A camera index or stream URL is live; a path on disk is not.
+
+    Regression: the clock used to be chosen from CAP_PROP_POS_MSEC. On Windows
+    the MSMF backend reports device uptime there (~78717938 ms when measured),
+    so every live row was stamped ~22 h in the future and the 60 s ESP/camera
+    join could never match.
+    """
+    assert is_live_source("0")
+    assert is_live_source("1")
+    assert is_live_source("rtsp://10.0.0.5/stream")
+    assert is_live_source("http://cam.local/mjpeg")
+
+    assert not is_live_source("river.mp4")
+    assert not is_live_source("data/videos/loc1_test.mp4")
+    assert not is_live_source(r"C:\videos\clip.mp4")
+
+
+def test_preview_writes_are_atomic_and_throttled(tmp_path) -> None:
+    """The web server reads these files while this writes them.
+
+    An in-place write hands the reader a truncated JPEG. Every write must land
+    via a temp name, and no temp file may survive.
+    """
+    frame = np.full((20, 30, 3), 100, dtype=np.uint8)
+    combined = np.zeros((20, 30), dtype=np.uint8)
+    combined[0:5, 0:5] = DEBRIS
+
+    pv = LivePreview(tmp_path, PreviewParams(enabled=True, interval_s=10.0))
+    assert pv.update(frame, combined, now=100.0)
+    assert not pv.update(frame, combined, now=101.0), "must throttle inside the interval"
+    assert pv.update(frame, combined, now=200.0)
+
+    live = tmp_path / "live"
+    assert (live / "frame.jpg").stat().st_size > 0
+    assert (live / "mask.jpg").stat().st_size > 0
+    assert not list(live.glob(".*.tmp")), "a temp file must never survive a write"
+
+
+def test_a_failed_preview_write_never_stops_measurement(tmp_path, monkeypatch, capsys) -> None:
+    """Regression: this killed the inference process in production.
+
+    os.replace raises PermissionError on Windows when the web server has the
+    destination JPEG open, which at ten writes a second happens regularly. The
+    loop must lose a frame, not exit -- the SQLite rows are the product, the
+    pictures are decoration.
+    """
+    frame = np.zeros((10, 10, 3), dtype=np.uint8)
+    combined = np.zeros((10, 10), dtype=np.uint8)
+
+    import inference.preview as preview_mod
+
+    def always_denied(*_args, **_kwargs):
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(preview_mod.os, "replace", always_denied)
+
+    pv = LivePreview(tmp_path, PreviewParams(enabled=True, interval_s=0.0))
+    assert pv.update(frame, combined, now=1.0) is False
+    assert pv.update(frame, combined, now=2.0) is False
+
+    # Reported once, not once per frame, or a persistent fault buries the log.
+    assert capsys.readouterr().out.count("[preview] write failed") <= 1
+    assert not list((tmp_path / "live").glob(".*.tmp")), "temp files must be cleaned up"
+
+
+def test_replace_with_retry_gives_up_instead_of_raising(tmp_path) -> None:
+    src = tmp_path / ".x.tmp"
+    src.write_text("hi", encoding="utf-8")
+    assert replace_with_retry(src, tmp_path / "x.txt") is True
+    assert (tmp_path / "x.txt").read_text(encoding="utf-8") == "hi"
+
+
+SQUARE = [[0, 0], [1, 0], [1, 1], [0, 1]]
+
+
+def test_polygon_validation_matches_the_web_contract() -> None:
+    """Same cases as web/tests/polygons.test.ts. Change one, change the other.
+
+    A rule enforced on only one side is the worst failure mode here: the editor
+    reports "tersimpan", the loop rejects the file, and the alerts quietly keep
+    using the old config with nothing on screen to say so.
+    """
+    assert valid_polygon(SQUARE) == [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+
+    assert valid_polygon([[0, 0], [1, 0]]) is None, "two points is not a polygon"
+    assert valid_polygon([[0, 0], [1.5, 0], [1, 1]]) is None, "outside 0..1 is refused, not clamped"
+
+    # The real placeholders from site_bendungan.yaml. Posting them unconverted
+    # must fail loudly rather than build a mask off-screen.
+    assert valid_polygon([[120, 260], [1180, 260], [1240, 700]]) is None
+
+    assert valid_polygon([[0.1, 0.1], [0.5, 0.5], [0.9, 0.9]]) is None, "collinear -> empty mask"
+    assert valid_polygon([[0, 0], [1, 0], [True, 1]]) is None, "bool is not a coordinate"
+    assert valid_polygon("bukan larik") is None
+    assert valid_polygon([[i / 65, 0.5] for i in range(65)]) is None, "65 points is over the cap"
+
+    assert polygon_area(SQUARE) == pytest.approx(1.0)
+    assert polygon_area(list(reversed(SQUARE))) == pytest.approx(1.0), "winding must not matter"
+
+
+def test_polygons_round_trip_and_survive_a_corrupt_file(tmp_path) -> None:
+    assert read_polygons(tmp_path) is None, "no file means 'use the config', not 'empty polygon'"
+
+    structure = [[0.3, 0.3], [0.7, 0.3], [0.7, 0.9], [0.3, 0.9]]
+    write_polygons(tmp_path, SQUARE, structure)
+    got = read_polygons(tmp_path)
+    assert got is not None and got["structure"] == structure
+
+    (tmp_path / "polygons.json").write_text("{ rusak", encoding="utf-8")
+    assert read_polygons(tmp_path) is None, "corrupt file must not crash the loop"
+
+    with pytest.raises(ValueError):
+        write_polygons(tmp_path, SQUARE, [[0, 0], [1, 0]])
+
+
+def test_denormalize_puts_x_equals_one_on_the_last_column() -> None:
+    """Off by one here shifts every mask by a pixel, silently."""
+    from inference.geometry import denormalize
+
+    assert denormalize([[0.0, 0.0], [1.0, 1.0]], (480, 640)) == [[0.0, 0.0], [639.0, 479.0]]
+
+
+def test_a_corrupt_control_file_reads_as_no_request(tmp_path) -> None:
+    """The web writes this file while the loop reads it.
+
+    A parse error must mean "nobody asked", not a crash: the inference loop
+    keeps a camera pointed at a river and must never die because a JSON write
+    was caught halfway.
+    """
+    (tmp_path / "control.json").write_text("{ not json", encoding="utf-8")
+    assert read_request(tmp_path) is None
+
+    (tmp_path / "control.json").write_text("{}", encoding="utf-8")
+    assert read_request(tmp_path) is None, "a file without `source` is not a request"
+
+
+def test_control_round_trips_as_the_string_a_capture_expects(tmp_path) -> None:
+    assert read_request(tmp_path) is None, "no file means no request"
+
+    write_request(tmp_path, "1")
+    assert read_request(tmp_path) == "1"
+
+    # cv2.VideoCapture takes int or str; the loop decides via .isdigit(), so an
+    # int written here must not come back as one.
+    write_request(tmp_path, 0)
+    assert read_request(tmp_path) == "0"
+
+
+def test_status_and_request_never_share_a_file(tmp_path) -> None:
+    """One file per direction, so a stale request cannot be read as live status."""
+    write_request(tmp_path, "3")
+    write_status(tmp_path, active="0", devices=[{"index": 0, "width": 640, "height": 480}])
+
+    assert read_request(tmp_path) == "3", "status must not clobber the pending request"
+    status = json.loads((tmp_path / "status.json").read_text(encoding="utf-8"))
+    assert status["active"] == "0", "the loop reports what it runs, not what was asked"
+    assert status["error"] is None
+    assert not list(tmp_path.glob(".*.tmp")), "no temp file may survive a write"
+
+
+def test_preview_is_off_unless_the_config_asks_for_it(tmp_path) -> None:
+    """Writing JPEGs at every site by default would be a surprise on the Pi."""
+    frame = np.zeros((10, 10, 3), dtype=np.uint8)
+    combined = np.zeros((10, 10), dtype=np.uint8)
+
+    pv = LivePreview(tmp_path, PreviewParams())
+    assert not pv.update(frame, combined, now=1.0)
+    assert not (tmp_path / "live").exists()
 
 
 def test_sink_appends_without_duplicating_the_csv_header(tmp_path) -> None:

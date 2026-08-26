@@ -370,6 +370,56 @@ expensive per-image work in this project; do not pay it out of completionism. IW
 its place on camera geometry — if fine-tuning on Phase 2 site data makes that moot, it
 was never needed.
 
+### Status on disk — 2026-08-17
+
+What is actually present, as opposed to planned. Verified by listing the directories,
+not from memory.
+
+| dataset | raw | processed | ready to train? |
+|---|---|---|---|
+| **riptseg** | 579 MB, unzipped | **300 images** | **yes** — split 200/50/50, 5 runs already trained |
+| **iwhr** | 2.1 GB, unzipped, merged | in progress | not yet — needs water pseudo-label + review |
+| **risid** | **partial**, 810 MB of 5.6 GB | — | no — download was interrupted |
+| lars | not downloaded | — | no — gated, needs registration |
+| usvinland | not downloaded | — | no — gated, manual access |
+| roboflow_river_trash | not downloaded | — | no — manual export |
+| **opsi** (site data) | **does not exist** | — | no — this is the one that needs annotating |
+
+Two things worth stating plainly, because they are easy to confuse:
+
+* The **public datasets already carry annotations**. They are downloaded and
+  converted, never hand-labelled. Re-annotating RIPTSeg in particular would throw
+  away the only ground-truth water in the whole survey.
+* **Only `opsi` needs annotation**, and it does not exist yet — it is site footage
+  that still has to be recorded.
+
+**IWHR is a three-step pipeline, not one.** `voc_bbox` yields debris boxes only, so a
+freshly converted IWHR reads ~99% background with `water: 0.0`. That is expected, not
+a bug — `water_source: pseudo_pending` says as much. Training on it in that state
+would teach the model that river water is background, precisely the failure
+`riptseg.yaml` warns about. The sequence:
+
+```
+python -m data.convert           --dataset iwhr   # boxes -> debris masks
+python -m data.water_pseudolabel --dataset iwhr   # SAM fills water, writes overlays
+python -m data.review            --dataset iwhr   # verdict CSV, worst-first
+#   ... look through review/iwhr/ , fill in the blank verdicts ...
+python -m data.review            --dataset iwhr --apply
+```
+
+The review gate is lighter than it sounds: only auto-flagged rows are left blank, and
+a blank verdict is excluded rather than silently promoted.
+
+**Label vocabulary verified after unzipping**, as the IWHR section above asks. The
+archive is single-class: `floater`, 23 692 boxes across 3000 images (~7.9 per image).
+`label_map: {floater: debris}` is therefore correct and complete.
+
+**`group_from: flat` confirmed correct.** The VOC `<folder>` field holds 24 distinct
+values, but they are annotator names (`chengsiwei`, `wangminkai`) and batch labels
+(`img`, `1000-1999`), not camera sites. There is no reliable site key to group on, so
+flat is honest rather than lazy — and `sampling_weight: 0.7` already limits the damage
+from any leakage that grouping would have caught.
+
 ### Sampling
 
 Balanced sampling, not uniform pooling. Without it the mix is ~55% RiSID by image count

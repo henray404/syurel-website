@@ -45,4 +45,8 @@ sampling_weight: 0.7
 max_size: 1024
 
 sam_checkpoint: data/checkpoints/mobile_sam.pt
-sam_device: cpu
+# cuda, not cpu: this is the largest dataset in the survey (3000 images) and every
+# one of them needs a SAM pass to lift boxes into masks. On CPU that is ~1-2 s/image
+# (see src/data/sam.py), i.e. roughly an hour of wall clock. Fall back to cpu on a
+# machine without a GPU -- the output is identical, only slower.
+sam_device: cuda

@@ -1,0 +1,86 @@
+# RIPTSeg + IWHR, LR-ASPP MobileNetV3, 3-class (clump folded into debris).
+#
+#   python -m train.train --config configs/train/combined_lraspp_collapsed.yaml
+#
+# Directly comparable to riptseg_lraspp_collapsed.yaml: same model, same loss, same
+# schedule, same augmentation. The ONLY differences are the data mix and the cap
+# below, so the delta between the two runs measures what IWHR is actually worth.
+#
+# Split shape after adding IWHR: 2710 train / 50 val / 50 test.
+#
+# val and test are RIPTSeg-ONLY, and that is deliberate rather than an oversight.
+# IWHR has `group_from: flat`, so it forms a single group and the group-aware
+# splitter refuses to subdivide it (it warns about exactly this). The outcome is the
+# right one anyway: RIPTSeg carries ground-truth water, IWHR's water is a SAM
+# pseudo-label, and a model should be scored against ground truth. It also means no
+# IWHR image can leak between train and eval, because IWHR never appears in eval.
+classes: configs/classes_collapsed.yaml
+
+name: combined_lraspp_collapsed
+seed: 0
+device: null
+deterministic: false
+
+model:
+  name: lraspp_mnv3
+  args:
+    pretrained: true
+
+data:
+  size: 512
+  batch_size: 16
+  num_workers: 8
+
+  # THE IMPORTANT LINE IN THIS FILE.
+  #
+  # riptseg_lraspp_collapsed.yaml sets this to 0 and explains "only 200 train
+  # images; capping would do nothing". True then, false now: the pool is 200 RIPTSeg
+  # against 2510 IWHR, so uniform pooling would make each epoch ~93% IWHR and drown
+  # the only ground-truth water in the project under pseudo-labels.
+  #
+  # BalancedEpochSampler draws `cap * sampling_weight` per dataset per epoch:
+  #     riptseg  min(200,  400 * 1.0) = 200   <- all of it, every epoch
+  #     iwhr     min(2510, 400 * 0.7) = 280
+  # giving ~42% ground truth / ~58% pseudo-label, reshuffled each epoch from a
+  # seed+epoch stream. Across 120 epochs IWHR still shows roughly 10 different draws
+  # of each of its 2510 images, so capping costs far less diversity than it appears.
+  per_dataset_cap: 400
+
+loss:
+  name: dice+focal
+  weights: [0.5, 0.5]
+  dice:
+    smooth: 1.0
+  focal:
+    gamma: 2.0
+
+optimizer:
+  name: adamw
+  lr: 0.0006
+  weight_decay: 0.0001
+
+scheduler:
+  name: cosine
+
+train:
+  epochs: 120            # 480 samples/epoch at batch 16 -> 30 steps/epoch, ~3.6k steps
+  amp: true
+  grad_clip: 1.0
+  select_metric: iou_debris
+  early_stopping_patience: 30
+
+# Unchanged from the RIPTSeg-only run so the comparison stays honest. IWHR adds real
+# viewpoint variety, so this is now heavier than strictly necessary -- but changing
+# two things at once would make the delta uninterpretable.
+aug:
+  affine: 0.7
+  brightness_contrast: 0.9
+  hsv: 0.9
+  gamma: 0.5
+  clahe: 0.3
+  sun_flare: 0.25
+  tone_curve: 0.3
+  rain: 0.15
+  fog: 0.15
+  low_light: 0.2
+  motion_blur: 0.15

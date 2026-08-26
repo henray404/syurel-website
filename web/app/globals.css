@@ -1,13 +1,31 @@
+/* Palette lifted from "Web Pemantauan Pintu Air.dc.html" (Claude Design).
+   The design is light-only on purpose: this runs on a laptop in a gatehouse,
+   in daylight, and a dark variant nobody has looked at is a liability. */
 :root {
-  --ground: #f2f4f5;
+  --ground: #eaeef4;
   --surface: #ffffff;
-  --ink: #12212b;
-  --soft: #4a5c67;
-  --rule: #d3dade;
-  --clear: #2e7d5b;
-  --watch: #b07d22;
-  --blocked: #b04a22;
-  --unknown: #7c8c96;
+  --ink: #1f2d3d;
+  --soft: #5b6b7f;
+  --muted: #8b98a9;
+  --faint: #a3aebc;
+  --navy: #26456e;
+  --rule: #d7dde6;
+  --blue: #4f8ff0;
+
+  --clear: #3aa35d;
+  --clear-bg: #ecf8f0;
+  --clear-fg: #1d6b39;
+  --watch: #e8a33d;
+  --watch-bg: #fdf5e6;
+  --watch-fg: #8a5a12;
+  --blocked: #d9534f;
+  --blocked-bg: #fdefee;
+  --blocked-fg: #8f2b28;
+  --unknown: #8b98a9;
+  --unknown-bg: #f2f4f8;
+  --unknown-fg: #4b5b6e;
+
+  --card: 0 2px 10px rgba(31, 45, 61, 0.05);
 }
 
 * {
@@ -18,5 +36,302 @@ body {
   margin: 0;
   background: var(--ground);
   color: var(--ink);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Nunito Sans is loaded from Google Fonts, which needs internet the gatehouse
+     may not have. The fallback stack is the real contract; the webfont is a
+     bonus. Icons are inline SVG for the same reason -- an icon *font* that
+     fails to load renders its ligature names as literal words. */
+  font-family: "Nunito Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.topbar {
+  background: var(--surface);
+  border-radius: 0 0 14px 14px;
+  padding: 16px 28px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  box-shadow: 0 1px 4px rgba(31, 45, 61, 0.06);
+}
+.brand {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+.clock {
+  font-size: 14px;
+  color: var(--soft);
+  font-weight: 600;
+  /* Digits change every second; without this the row jitters. */
+  font-variant-numeric: tabular-nums;
+}
+.clock-date {
+  font-size: 14px;
+  color: var(--muted);
+}
+.spacer {
+  flex: 1;
+}
+.who {
+  font-size: 14px;
+  color: var(--soft);
+  font-weight: 600;
+}
+.avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--navy);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Body columns */
+.body {
+  flex: 1;
+  display: flex;
+  gap: 24px;
+  padding: 26px 28px 32px;
+}
+.sidebar {
+  width: 210px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.rail {
+  width: 230px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font: 700 15px inherit;
+  font-family: inherit;
+  padding: 13px 18px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  background: transparent;
+  color: var(--soft);
+  text-decoration: none;
+}
+.nav:hover {
+  background: rgba(38, 69, 110, 0.06);
+}
+.nav[aria-current="page"] {
+  background: var(--navy);
+  color: #fff;
+}
+.nav[aria-current="page"]:hover {
+  background: var(--navy);
+}
+
+/* Cards */
+.card {
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: var(--card);
+}
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.card-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+.card-value {
+  font-size: 32px;
+  font-weight: 800;
+  margin-top: 10px;
+}
+/* A value that could not be measured must never look like a reading. */
+.card-value.absent {
+  color: var(--faint);
+  font-style: italic;
+  font-size: 19px;
+  font-weight: 700;
+}
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.banner {
+  border-radius: 16px;
+  padding: 22px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.banner-title {
+  font-size: 17px;
+  font-weight: 800;
+}
+.banner-message {
+  font-size: 14px;
+  margin-top: 3px;
+  opacity: 0.85;
+}
+
+.bar-track {
+  height: 9px;
+  background: var(--ground);
+  border-radius: 5px;
+  margin-top: 14px;
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 5px;
+}
+.foot {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 12px;
+}
+
+.rail-title {
+  font-size: 15px;
+  font-weight: 800;
+  margin-bottom: 14px;
+}
+.notif {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.notif:last-child {
+  margin-bottom: 0;
+}
+.notif-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex: none;
+}
+.notif-text {
+  font-size: 13.5px;
+  line-height: 1.35;
+  color: #3d4c5e;
+}
+.notif-time {
+  font-size: 12px;
+  color: var(--faint);
+  margin-top: 2px;
+}
+
+.empty {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.picker {
+  font: 600 14px inherit;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.picker:disabled {
+  color: var(--faint);
+  cursor: not-allowed;
+}
+
+.hint {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+@media (max-width: 760px) {
+  .grid3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Loud on purpose. Every physics number on the page is derived from guessed
+   gate dimensions until the site is surveyed, and 1/(1-BF)^2 squares that
+   error -- an unlabelled figure here would be the most misleading thing on
+   screen. */
+.badge-warn {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--watch-fg);
+  background: var(--watch-bg);
+  padding: 3px 9px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.card-value + .foot {
+  margin-top: 4px;
+}
+
+code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.92em;
+  background: var(--ground);
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+
+@media (max-width: 1100px) {
+  .body {
+    flex-wrap: wrap;
+  }
+  .rail {
+    width: 100%;
+  }
+}
+@media (max-width: 760px) {
+  .body {
+    padding: 16px;
+    gap: 16px;
+  }
+  .sidebar {
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+  }
+  .grid2 {
+    grid-template-columns: 1fr;
+  }
 }

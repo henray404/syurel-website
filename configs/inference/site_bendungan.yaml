@@ -1,0 +1,98 @@
+# Site config: BENDUNG GERAK / PINTU AIR, camera on the UPSTREAM (impounded) side.
+#
+#   python -m inference.run --config configs/inference/site_bendungan.yaml --source river.mp4
+#
+# Copied from site_example.yaml and retuned for a gated barrage rather than a
+# trash rack. The differences are not cosmetic -- read the notes, they change what
+# the numbers mean.
+#
+# ALL POLYGONS BELOW ARE PLACEHOLDERS for a 1280x720 frame. Redraw them against a
+# real frame from the real camera before any number here means anything.
+
+site: bendungan_a
+device: null            # null -> cuda if available, else cpu
+input_size: 512         # must match what the model was trained/benchmarked at
+
+models:
+  trash:
+    name: lraspp_mnv3
+    checkpoint: runs/baseline_lraspp/best.pt
+    args: {}
+  water: null
+
+# WHY THESE ARE SO MUCH SLOWER THAN site_example.yaml:
+# that file assumes a flowing river, where "trash moves over seconds". Upstream of
+# a barrage the water is impounded and velocity is near zero -- the debris raft
+# drifts over minutes to hours, not seconds. Sampling every second would burn ~30x
+# the compute and power for the same curve, which matters on the Pi.
+sampling:
+  trash_interval_s: 30.0
+  water_interval_s: 30.0   # kept fast: gate operations change level quickly
+
+# Region of interest: the impounded pool surface only.
+#
+# Excluding sky is MORE critical here than at a flowing site. Still water is a
+# mirror: buildings, sky and the barrage itself reflect sharply across the whole
+# pool all day. Reflection is the dominant false-positive mode at this site, not an
+# edge case -- see annotation_guideline.md 2.2.
+roi:
+  - [120, 260]
+  - [1180, 260]
+  - [1240, 700]
+  - [60, 700]
+
+# THE GATE ZONE. This is the single most important polygon in this file.
+#
+# NOT the concrete of the barrage. Draw the WATER SURFACE immediately upstream of
+# the gate openings -- that is where the floating raft piles up and it is what
+# jams the gates. Extend it upstream far enough to catch a raft while it is still
+# approaching, not only once it is already pressed against the steel.
+#
+# Include the region above the waterline against the gate: material stranded there
+# is still blockage (annotation_guideline.md 2.7).
+structure:
+  - [560, 300]
+  - [720, 300]
+  - [740, 690]
+  - [540, 690]
+
+smoothing:
+  window: 30            # samples, not seconds -- at 30 s/sample that is ~15 min
+  method: median        # median resists single-frame glare spikes; mean tracks faster
+
+# THRESHOLDS ARE UNCALIBRATED GUESSES. Lower than site_example.yaml on purpose: a
+# raft covering 30% of the gate approach is already a serious event at a barrage,
+# whereas a trash rack routinely sits part-covered by design.
+#
+# Calibrate these against your own logged data before trusting them. The honest
+# method: log for a season, plot the coverage series, and find the level that
+# actually preceded the events an operator would have wanted to know about.
+blockage:
+  area_threshold: 0.18            # fraction of the gate-zone polygon covered
+  growth_threshold_per_min: 0.03  # slower water -> slower growth -> lower trigger
+  growth_window_s: 900.0          # 15 min: pool dynamics are slow
+  consecutive: 3                  # samples above threshold before the alert fires
+
+# Optical flow is near-useless as a FLUX measure here -- impounded water has almost
+# no velocity, so area_flux would report noise dressed as a number. It is kept only
+# because it costs nothing extra and drift direction is worth eyeballing: a raft
+# drifting toward the gates is a leading indicator.
+#
+# DO NOT report area_flux as a headline metric at this site. Accumulation is the
+# metric that means something; flux belongs to flowing-river deployments.
+velocity:
+  scale: 0.5
+  min_magnitude_px: 0.3
+  smooth_window: 15
+
+cross_section_width: 1.0   # unused in practice here; see the note above
+
+# PHASE 2, same as the flowing-river config: calibration needs four surveyed points
+# on the water surface at the real site.
+homography:
+  enabled: false
+
+output_dir: out
+output:
+  csv: true
+  sqlite: true

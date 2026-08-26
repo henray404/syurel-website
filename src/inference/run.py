@@ -43,7 +43,7 @@ import yaml
 from data.schema import BACKGROUND, CLUMP, DEBRIS, WATER, load_schema
 from models import build_model
 
-from .geometry import build_geometry, build_masks
+from .geometry import build_geometry, build_masks, denormalize
 from .metrics import (
     BlockageMonitor,
     BlockageParams,
@@ -52,6 +52,8 @@ from .metrics import (
     area_flux,
     frame_metrics,
 )
+from .control import probe_cameras, read_polygons, read_request, write_request, write_status
+from .preview import LivePreview, PreviewParams
 from .sink import TimeSeriesSink
 from .velocity import VelocityEstimator, VelocityParams
 
@@ -88,6 +90,26 @@ def infer(model: torch.nn.Module, frame_bgr: np.ndarray, size: int, device: str)
     return cv2.resize(pred, (w, h), interpolation=cv2.INTER_NEAREST)
 
 
+def is_live_source(source: str) -> bool:
+    """True for a camera index or a network stream, False for a file on disk.
+
+    THIS DECIDES WHICH CLOCK THE ROWS ARE STAMPED WITH, and it must be decided
+    from the source, not from what the capture reports.
+
+    The earlier version trusted CAP_PROP_POS_MSEC whenever it was positive. On
+    Windows the default MSMF backend answers that with the device's uptime --
+    measured here as 78717938 ms, about 22 hours -- rather than time elapsed
+    since the camera opened. Every row then landed ~22 h in the future, which
+    made the ESP/camera join (60 s tolerance) impossible to satisfy and quietly
+    disabled the pairing of the two sources.
+
+    A file is the opposite case: its POS_MSEC is meaningful and must be used, so
+    replaying the same recording twice yields identical timestamps.
+    """
+    s = str(source)
+    return s.isdigit() or "://" in s
+
+
 def open_source(source: str) -> cv2.VideoCapture:
     cap = cv2.VideoCapture(int(source) if source.isdigit() else source)
     if not cap.isOpened():
@@ -113,13 +135,24 @@ def run(config_path: Path, source: str, max_frames: int | None = None) -> dict[s
     trash_interval = float(sampling.get("trash_interval_s", 1.0))
     water_interval = float(sampling.get("water_interval_s", 30.0))
 
-    smoother = Smoother(SmoothingParams(**(cfg.get("smoothing") or {})))
-    monitor = BlockageMonitor(BlockageParams(**(cfg.get("blockage") or {})))
-    velocity = VelocityEstimator(VelocityParams(**(cfg.get("velocity") or {})))
+    # Kept so they can be rebuilt on a camera switch: a median window carried
+    # across two different scenes blends measurements that share nothing.
+    smoothing_params = SmoothingParams(**(cfg.get("smoothing") or {}))
+    blockage_params = BlockageParams(**(cfg.get("blockage") or {}))
+    velocity_params = VelocityParams(**(cfg.get("velocity") or {}))
+
+    smoother = Smoother(smoothing_params)
+    monitor = BlockageMonitor(blockage_params)
+    velocity = VelocityEstimator(velocity_params)
     geometry = build_geometry(cfg)
     cross_section_width = float(cfg.get("cross_section_width", 1.0))
 
+    # Probe BEFORE opening our own capture: a device can only be held by one
+    # reader, so the camera we are about to take would look unavailable.
+    devices = probe_cameras() if is_live_source(source) else []
+
     cap = open_source(source)
+    live = is_live_source(source)
     fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
     dt_nominal = 1.0 / fps if fps > 0 else 1.0 / 30.0
 
@@ -130,6 +163,20 @@ def run(config_path: Path, source: str, max_frames: int | None = None) -> dict[s
         csv_enabled=bool((cfg.get("output") or {}).get("csv", True)),
         sqlite_enabled=bool((cfg.get("output") or {}).get("sqlite", True)),
     )
+    preview = LivePreview(out_dir, PreviewParams(**(cfg.get("preview") or {})))
+    live_dir = preview.dir
+    # Publish what is running before the first frame, so the web dropdown is
+    # populated even if the model is still warming up.
+    if preview.params.enabled:
+        live_dir.mkdir(parents=True, exist_ok=True)
+        write_status(live_dir, active=str(source), devices=devices)
+        # Sync the control file to what we actually opened. Without this, a
+        # control.json left over from an earlier session wins over the --source
+        # the user just typed: the first pass of the loop below reads the stale
+        # value, sees it differs from active_source, and switches away from the
+        # camera that was explicitly asked for. The command line is the more
+        # recent statement of intent, so it is the one that survives.
+        write_request(live_dir, str(source))
 
     mode = (
         "two-model (real compute saving)"
@@ -140,6 +187,7 @@ def run(config_path: Path, source: str, max_frames: int | None = None) -> dict[s
         f"site={site} device={device} size={size} fps={fps or 'unknown'}\n"
         f"water mode: {mode}\n"
         f"intervals: trash={trash_interval}s water={water_interval}s\n"
+        f"clock: {'wall (live source)' if live else 'frame-derived (file)'}\n"
         f"geometry: {'metric' if geometry.is_metric else 'PIXEL RATIO (relative index)'}"
     )
 
@@ -151,20 +199,103 @@ def run(config_path: Path, source: str, max_frames: int | None = None) -> dict[s
     t_start = time.time()
     prev_ts: float | None = None
 
+    active_source = str(source)
+    last_control_check = 0.0
+    last_flush = time.time()
+    # A request that failed to open stays failed until the web asks for
+    # something else. Without this the loop retries every 0.5 s, and each failed
+    # VideoCapture open costs about a second on Windows -- the frame rate would
+    # collapse because someone picked an unplugged camera once.
+    refused_source: str | None = None
+    # None means "no drawing saved, use the config polygons". Never {} -- an
+    # empty structure polygon silently disables blockage alerts.
+    active_polygons = read_polygons(live_dir) if preview.params.enabled else None
+    if active_polygons is not None:
+        print("[polygons] using operator-drawn polygons from polygons.json")
+
     try:
         while True:
+            # --- camera switch requested by the web page ----------------------
+            # Polled, not pushed: this loop must not depend on the web server
+            # being up, and a missing or corrupt file simply means no request.
+            if preview.params.enabled and (time.time() - last_control_check) >= 0.5:
+                last_control_check = time.time()
+                # Redrawn polygons: rebuild the masks, but do NOT reset the
+                # series. The scene is the same one; only the region being
+                # counted moved, so the history stays comparable in a way it
+                # does not across a camera switch.
+                drawn = read_polygons(live_dir)
+                if drawn != active_polygons:
+                    active_polygons = drawn
+                    masks = None
+                    print("[polygons] reloaded")
+
+                wanted = read_request(live_dir)
+                if wanted is not None and wanted != active_source and wanted != refused_source:
+                    new_cap = cv2.VideoCapture(int(wanted) if wanted.isdigit() else wanted)
+                    if new_cap.isOpened():
+                        cap.release()
+                        cap = new_cap
+                        active_source = wanted
+                        refused_source = None
+                        live = is_live_source(wanted)
+                        fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+                        dt_nominal = 1.0 / fps if fps > 0 else 1.0 / 30.0
+                        # The new camera may have a different resolution, so the
+                        # polygons must be re-rasterised, and every accumulated
+                        # measurement now describes a scene that is gone.
+                        masks = None
+                        water_mask = debris_mask = None
+                        last_trash = last_water = -1e18
+                        prev_ts = None
+                        smoother = Smoother(smoothing_params)
+                        monitor = BlockageMonitor(blockage_params)
+                        velocity = VelocityEstimator(velocity_params)
+                        write_status(live_dir, active=active_source, devices=devices)
+                        print(f"[switch] source -> {active_source}")
+                    else:
+                        new_cap.release()
+                        refused_source = wanted
+                        # Keep running on the old camera. Reporting the failure
+                        # and carrying on beats going dark because someone
+                        # picked a device that is unplugged or already in use.
+                        write_status(
+                            live_dir,
+                            active=active_source,
+                            devices=devices,
+                            error=f"tidak bisa membuka sumber {wanted!r}",
+                        )
+                        print(f"[switch] FAILED to open {wanted!r}, staying on {active_source}")
+
             ok, frame = cap.read()
             if not ok:
                 break
 
             # Wall clock for a live stream; frame-derived for a file, so replaying
-            # a recording produces the same timestamps every time.
-            pos_ms = cap.get(cv2.CAP_PROP_POS_MSEC)
-            offset = pos_ms / 1000.0 if pos_ms and pos_ms > 0 else frame_idx * dt_nominal
-            now = t_start + offset
+            # a recording produces the same timestamps every time. See
+            # is_live_source() for why this cannot be decided from POS_MSEC.
+            if live:
+                now = time.time()
+            else:
+                pos_ms = cap.get(cv2.CAP_PROP_POS_MSEC)
+                offset = pos_ms / 1000.0 if pos_ms and pos_ms > 0 else frame_idx * dt_nominal
+                now = t_start + offset
 
             if masks is None:
-                masks = build_masks(cfg, frame.shape[:2])
+                shape = frame.shape[:2]
+                if active_polygons is None:
+                    mask_cfg = cfg
+                else:
+                    # Operator-drawn polygons win over the config file. They are
+                    # normalised, so they survive the camera switch that just
+                    # changed this frame's resolution -- which is the whole
+                    # reason they are stored as fractions.
+                    mask_cfg = {
+                        **cfg,
+                        "roi": denormalize(active_polygons["roi"], shape),
+                        "structure": denormalize(active_polygons["structure"], shape),
+                    }
+                masks = build_masks(mask_cfg, shape)
                 if masks.structure_pixels == 0:
                     print("[warn] structure polygon is empty -- blockage alerts cannot fire")
 
@@ -230,17 +361,33 @@ def run(config_path: Path, source: str, max_frames: int | None = None) -> dict[s
                 }
             )
 
+            # After the metrics, so a frame the web shows is one that produced a
+            # row: an overlay with no matching number is impossible to debug.
+            preview.update(frame, combined, now, masks.roi, masks.structure)
+
             if block["alert"] and block["streak"] == monitor.params.consecutive:
                 print(f"[ALERT] frame {frame_idx}: {block['alert_reason']}")
 
             frame_idx += 1
-            if frame_idx % 100 == 0:
+            # Commit on a CLOCK, not a frame count.
+            #
+            # This used to flush every 100 frames. At the webcam config's 25
+            # rows/s that is a write transaction held open for four seconds, and
+            # SQLite allows one writer at a time -- so the web server's ingest
+            # POST hit "database is locked", returned 503, and the ESP32 retried
+            # the same batch forever with no reading ever stored.
+            #
+            # Frame count was never the right unit anyway: the same 100 frames
+            # is 4 s on a webcam and 50 minutes at the barrage's 30 s sampling.
+            if (time.time() - last_flush) >= 0.5:
                 sink.flush()
+                last_flush = time.time()
             if max_frames is not None and frame_idx >= max_frames:
                 break
     finally:
         cap.release()
         sink.close()
+        preview.close()
 
     summary = {
         "site": site,

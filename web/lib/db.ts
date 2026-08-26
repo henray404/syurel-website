@@ -1,9 +1,18 @@
 import Database from "better-sqlite3";
 import { resolve } from "node:path";
 
+/**
+ * The default must name the same site as LIVE_DIR in lib/live.ts.
+ *
+ * It used to default to ../out/timeseries.sqlite while LIVE_DIR defaulted to
+ * ../out/webcam/live, so a dev server started without SYURELL_DB showed a live
+ * camera feed above numbers read from a database file that did not exist:
+ * pictures moving, every reading "tidak terukur". run.py writes both under
+ * out/<site>/, so the two defaults have to agree on <site>.
+ */
 export const DB_PATH = resolve(
   process.cwd(),
-  process.env.SYURELL_DB ?? "../out/timeseries.sqlite",
+  process.env.SYURELL_DB ?? "../out/webcam/timeseries.sqlite",
 );
 
 const CREATE_ESP_READINGS = `
@@ -35,6 +44,17 @@ CREATE TABLE IF NOT EXISTS esp_readings (
 export function openDb(path: string): Database.Database {
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
+  // WAL lets a reader and a writer coexist, but still allows only ONE writer.
+  // The inference loop writes a row per frame -- measured at 25/s on the webcam
+  // config -- so an ingest POST landing between two of them found the file
+  // locked and returned 503 "database is locked" straight away. The ESP32 then
+  // retried the same batch forever and no reading was ever stored.
+  //
+  // Waiting is the right answer, not failing: the writer holds the lock for far
+  // under a millisecond, and 5 s is longer than any real contention while still
+  // bounded, so a genuinely stuck writer still surfaces as an error the
+  // firmware can retry rather than as a hung request.
+  db.pragma("busy_timeout = 5000");
   db.exec(CREATE_ESP_READINGS);
   db.exec("CREATE INDEX IF NOT EXISTS idx_esp_ts ON esp_readings(ts_epoch)");
   return db;

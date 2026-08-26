@@ -16,6 +16,7 @@ YAML at it. Several YAMLs carry "VERIFY after download" notes for exactly this.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import urllib.request
 from pathlib import Path
@@ -69,6 +70,21 @@ DIRECT: dict[str, tuple[Path, list[tuple[str, str]], str]] = {
     ),
 }
 
+# name -> (dest dir, workspace slug, project slug, version, export format, note)
+ROBOFLOW: dict[str, tuple[Path, str, str, int, str, str]] = {
+    "opsi_roboflow": (
+        RAW_ROOT / "opsi_roboflow",
+        "hengray",
+        "OPSI",
+        1,
+        "coco-segmentation",
+        "Own Roboflow project. Requires ROBOFLOW_API_KEY env var (copy .env.example "
+        "to .env, fill it in). Set the Roboflow export split to 100% train -- "
+        "src/data/splits.py re-splits group-aware anyway, so Roboflow's own "
+        "train/valid/test folders would just add a merge step for nothing.",
+    ),
+}
+
 MANUAL: dict[str, str] = {
     "lars": (
         "https://lojzezust.github.io/lars-dataset/ -- registration/agreement form. "
@@ -95,7 +111,36 @@ def _progress(done: int, block: int, total: int) -> None:
     print(f"\r  {pct:5.1f}%  ({done * block / 1e6:.0f}/{total / 1e6:.0f} MB)", end="", flush=True)
 
 
+def fetch_roboflow(name: str) -> int:
+    dest, workspace, project_slug, version, fmt, note = ROBOFLOW[name]
+
+    api_key = os.environ.get("ROBOFLOW_API_KEY")
+    if not api_key:
+        print(
+            "ROBOFLOW_API_KEY not set. Copy .env.example to .env, fill in your key, "
+            "and export it into the shell before running this (e.g. `export "
+            "ROBOFLOW_API_KEY=...`).",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        from roboflow import Roboflow  # type: ignore
+    except ImportError:
+        print("roboflow package not installed. Run: uv sync --extra roboflow", file=sys.stderr)
+        return 1
+
+    dest.mkdir(parents=True, exist_ok=True)
+    print(f"{name}: {note}\n  -> {dest}")
+    rf = Roboflow(api_key=api_key)
+    project = rf.workspace(workspace).project(project_slug)
+    project.version(version).download(fmt, location=str(dest))
+    return 0
+
+
 def fetch(name: str) -> int:
+    if name in ROBOFLOW:
+        return fetch_roboflow(name)
     if name in MANUAL:
         print(f"{name}: manual download required.\n  {MANUAL[name]}")
         return 0
@@ -136,6 +181,9 @@ def main(argv: list[str] | None = None) -> int:
         print("Direct download:")
         for k, (_, files, note) in DIRECT.items():
             print(f"  {k:22s} {len(files)} file(s)  -- {note.splitlines()[0]}")
+        print("\nRoboflow (needs ROBOFLOW_API_KEY, see .env.example):")
+        for k, (_, workspace, proj, version, fmt, note) in ROBOFLOW.items():
+            print(f"  {k:22s} {workspace}/{proj} v{version} [{fmt}]  -- {note.splitlines()[0]}")
         print("\nManual (gated / requires an account or export step):")
         for k, note in MANUAL.items():
             print(f"  {k:22s} {note[:70]}...")

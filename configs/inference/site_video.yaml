@@ -1,0 +1,86 @@
+# REKAMAN SUNGAI — file video, bukan kamera langsung.
+#
+#   python -m inference.run --config configs/inference/site_video.yaml \
+#       --source "C:/Users/Henry/Downloads/WhatsApp Video 2026-08-24 at 09.18.22.mp4"
+#
+# Kenapa file ini terpisah dari site_webcam.yaml, bukan sekadar --source lain:
+# `site` menentukan folder keluaran, jadi memakai site_webcam.yaml akan menulis
+# baris video ke DB webcam dan mencampur dua adegan berbeda dalam satu deret.
+# Poligon gambaran operator juga tersimpan per-site di live/polygons.json -- yang
+# untuk webcam digambar untuk sebuah kamar, dan tidak berarti apa-apa di sini.
+
+site: video
+device: null
+input_size: 640
+
+models:
+  trash:
+    name: segformer_b0
+    checkpoint: runs/combined_segformer_b0_640/best.pt
+    args: {}
+  water: null
+
+# Sumbernya file: jam diturunkan dari frame, bukan jam dinding (is_live_source di
+# run.py). Memutar ulang rekaman yang sama menghasilkan timestamp identik, jadi
+# angka yang keluar bisa direproduksi persis.
+sampling:
+  trash_interval_s: 0.0    # setiap frame; terukur 20,8 fps pada 1024x576
+  water_interval_s: 0.5
+
+# Digambar untuk frame 1024x576 rekaman ini. BUKAN placeholder.
+#
+# roi menghindari dua sudut yang bukan air: rumput dan tiang di kiri-bawah, serta
+# ranting pohon di kiri-atas. Keduanya sudah ditolak model dengan benar, tapi
+# mengeluarkannya dari ROI membuat `coverage` mengukur permukaan air saja.
+roi:
+  - [40, 30]
+  - [1015, 30]
+  - [1015, 545]
+  - [420, 545]
+  - [180, 470]
+  - [40, 330]
+
+# PERHATIAN: rekaman ini TIDAK punya pintu air. Poligon ini bukan zona pintu --
+# ia kotak di jalur lewatnya sampah yang mengapung, dipakai supaya
+# accumulation_frac punya penyebut yang masuk akal untuk ditonton bergerak.
+#
+# Jangan pakai angka dari sini sebagai bukti apa pun soal penyumbatan. Di lokasi
+# sungguhan poligon ini digambar dari jawaban operator atas pertanyaan B8 di
+# docs/wawancara_operator.md, bukan dikira-kira.
+structure:
+  - [380, 335]
+  - [665, 335]
+  - [665, 435]
+  - [380, 435]
+
+smoothing:
+  window: 10
+  method: median
+
+blockage:
+  area_threshold: 0.18
+  growth_threshold_per_min: 0.03
+  growth_window_s: 60.0
+  consecutive: 3
+
+velocity:
+  scale: 0.5
+  min_magnitude_px: 0.3
+  smooth_window: 15
+
+cross_section_width: 1.0
+
+homography:
+  enabled: false
+
+output_dir: out
+output:
+  csv: true
+  sqlite: true
+
+preview:
+  enabled: true
+  interval_s: 0.1
+  max_width: 960
+  jpeg_quality: 70
+  draw_polygons: true

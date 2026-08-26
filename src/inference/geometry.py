@@ -39,6 +39,18 @@ def polygon_mask(points: list[list[float]] | None, shape: tuple[int, int]) -> np
     return canvas.astype(bool)
 
 
+def denormalize(points: list[list[float]], shape: tuple[int, int]) -> list[list[float]]:
+    """Fractions of the frame -> pixel coordinates.
+
+    Scales by (w - 1, h - 1), not (w, h): a point at x = 1.0 is the LAST column,
+    index w - 1. Using w would put it one pixel past the edge, where fillPoly
+    silently clips it -- a polygon drawn flush to the right edge would come back
+    one pixel narrow, every time.
+    """
+    h, w = shape
+    return [[x * (w - 1), y * (h - 1)] for x, y in points]
+
+
 class Geometry(Protocol):
     """Pixel -> world conversion. See PixelGeometry for the un-calibrated default."""
 

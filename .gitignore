@@ -46,3 +46,10 @@ firmware/esp32/include/config_secrets.h
 
 # Firmware test harness build artifacts
 tests/firmware/*.exe
+
+# Firmware lives in its own repo (github.com/henray404/syurell_esp32), cloned
+# into firmware/esp32. Keeping it out avoids an embedded-repo gitlink here.
+/firmware/
+
+# Run logs from the GUI, webcam, and dev servers.
+*.log

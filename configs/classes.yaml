@@ -19,9 +19,26 @@ ignore_index: 255
 # Applied at load time (training / validation), NOT baked into the PNGs on disk.
 # That way collapsing is reversible without re-running conversion.
 #
-# To merge clump into debris -- the documented fallback if the clump/debris
-# boundary proves inconsistent in annotation -- uncomment:
+# THIS FILE STAYS 4-CLASS. Do not add a collapse rule here -- the collapsed schema
+# already lives in its own file, and several run configs depend on the distinction:
 #
-# collapse:
-#   clump: debris
+#     configs/classes_collapsed.yaml     <- clump folded into debris
+#     configs/train/*_collapsed.yaml     <- point at it via `classes:`
+#     configs/bench_riptseg.yaml         <- likewise
+#     configs/bench_riptseg_4class.yaml  <- deliberately uses THIS file
+#
+# Editing collapse in here silently changes what "4-class" means for every run that
+# did not opt in, which makes old checkpoints un-scoreable against their own schema
+# (see the warning in src/bench/accuracy.py).
+#
+# SITE DECISION 2026-08-17: annotation at the barrage site labels TWO classes only,
+# water and debris; clump is derived post-hoc by src/data/clump.py. Implement that by
+# pointing new run configs at classes_collapsed.yaml, NOT by editing this file. The
+# reasoning is recorded in docs/rencana_penelitian.md S4.2 -- in short: no water
+# hyacinth at the site, most debris falls under guideline S4's 1%-of-ROI sanity
+# floor, and a starved class hurts generalisation rather than merely costing time.
+#
+# Empirical support from data/processed/riptseg/convert_summary.json: debris is
+# 0.48% of pixels while clump is 3.0%. Folding them makes debris 3.47% -- about 7x
+# better populated, against 15.3% water.
 collapse: {}

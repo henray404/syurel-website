@@ -36,10 +36,20 @@ export type EspRow = {
   sms_status: string | null;
 };
 
-/** Empty stays null. A missing reading is not a reading of zero. */
+/**
+ * Empty stays null. A missing reading is not a reading of zero.
+ *
+ * "nan"/"-nan" also stays null: the firmware's snprintf("%.1f", ...) prints
+ * that literally whenever a float field is NAN (e.g. jarak_cm on an invalid
+ * ultrasonic read), and it means the same thing as an empty field -- no
+ * reading. Without this, JS's `Number("nan")` also evaluates to NaN and
+ * would throw here, rejecting the WHOLE batch over one expected invalid
+ * row -- the firmware then never advances its upload cursor and retries the
+ * same batch forever. Rejecting still applies to anything else unparseable.
+ */
 function num(raw: string, field: string): number | null {
   const s = raw.trim();
-  if (s === "") return null;
+  if (s === "" || s.toLowerCase() === "nan" || s.toLowerCase() === "-nan") return null;
   const v = Number(s);
   if (!Number.isFinite(v)) throw new Error(`${field}: not a number: ${JSON.stringify(raw)}`);
   return v;

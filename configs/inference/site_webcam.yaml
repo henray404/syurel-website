@@ -1,0 +1,123 @@
+# LAPTOP WEBCAM. For seeing the model work on your desk, not for measuring a river.
+#
+#   python -m inference.run --config configs/inference/site_webcam.yaml --source 0
+#
+# Probed on this machine 2026-08-24: index 0 = ASUS FHD webcam (640x480),
+# index 1 = Insta360 Link (1280x720). Pass --source 1 for the Insta360.
+#
+# Index 1 read as "does not open" on 2026-08-23 and the note here said so. It was
+# not absent: Insta360 Link Controller, CamoStudio and Zoom were each holding the
+# device, and DirectShow reports a held camera the same way it reports a missing
+# one. pygrabber lists device NAMES without opening them, which is how to tell
+# the two cases apart:
+#
+#   from pygrabber.dshow_graph import FilterGraph
+#   FilterGraph().get_input_devices()
+#
+# A name in that list plus a failed VideoCapture means something else has it.
+#
+# WHAT THIS FILE IS HONESTLY FOR. Pointing a webcam at a bowl of water and some
+# wrappers tells you three things worth knowing before the real site: that the
+# checkpoint loads and runs at interactive speed, that the ROI/structure polygons
+# land where you meant them, and that the whole chain -- camera to SQLite to the
+# web page -- is connected. It tells you NOTHING about accumulation at a barrage.
+# The numbers it writes are real measurements of whatever is in frame; they are
+# not measurements of a river, and `site: webcam` keeps them in their own
+# database file so they can never be mistaken for site data.
+
+site: webcam
+device: null            # null -> cuda if available, else cpu
+
+# 640 to match how the checkpoint was trained (configs/train/combined_segformer_b0_640.yaml).
+# Running a model at a size it never saw costs accuracy for nothing.
+input_size: 640
+
+models:
+  # Best benchmarked checkpoint: val iou_debris 0.7313, against 0.6304 for the
+  # lraspp baseline that site_bendungan.yaml still points at. The head is
+  # 4-channel and matches the default configs/classes.yaml, so no `classes:`
+  # override is needed here -- classes_collapsed.yaml folds clump into debris as
+  # a load-time LUT for training labels, it does not change output channels.
+  trash:
+    name: segformer_b0
+    checkpoint: runs/combined_segformer_b0_640/best.pt
+    args: {}
+  water: null
+
+# AS FAST AS THE HARDWARE ALLOWS. Measured on this machine 2026-08-23: the
+# checkpoint runs a 640 px forward pass in 28 ms on the RTX 5050, i.e. ~35 fps,
+# while the webcam delivers 30 fps. The model is therefore NOT the limit here --
+# every frame can be segmented.
+#
+# 0.0 means "no throttle": the interval check `(now - last_trash) >= interval`
+# is always true, so inference runs on every frame the camera hands over.
+#
+# Do not copy these values to a site config. site_bendungan.yaml samples every
+# 30 s deliberately -- impounded water drifts over minutes, and on a Raspberry Pi
+# a per-frame forward pass would burn the power budget for an identical curve.
+sampling:
+  trash_interval_s: 0.0
+  water_interval_s: 0.5   # denominator still cached: it stops coverage flickering
+
+# PLACEHOLDERS, and this file cannot be anything else -- they depend on what you
+# point the camera at. Drawn for a 640x480 frame:
+#   roi        the whole frame inset by 40 px, so edge vignetting is excluded
+#   structure  the middle third, standing in for the gate approach
+# Redraw both against a real frame. The overlay in live/mask.jpg outlines them
+# (white = roi, yellow = structure) precisely so you can see when they are wrong.
+roi:
+  - [40, 40]
+  - [600, 40]
+  - [600, 440]
+  - [40, 440]
+
+structure:
+  - [230, 120]
+  - [410, 120]
+  - [410, 400]
+  - [230, 400]
+
+# Short window: at 1 s/sample this is ~10 s. The barrage config uses 30 samples
+# at 30 s each (~15 min), which on a desk means nothing visibly changes.
+smoothing:
+  window: 10
+  method: median
+
+blockage:
+  area_threshold: 0.18            # same threshold the web page draws
+  growth_threshold_per_min: 0.03
+  growth_window_s: 60.0
+  consecutive: 3
+
+velocity:
+  scale: 0.5
+  min_magnitude_px: 0.3
+  smooth_window: 15
+
+cross_section_width: 1.0
+
+# Never calibrated for a webcam, so area_flux stays a relative index. Fine here:
+# nothing on this page reports flux.
+homography:
+  enabled: false
+
+output_dir: out
+output:
+  csv: true
+  sqlite: true
+
+# Writes out/webcam/live/frame.jpg and live/mask.jpg for the web /demo page.
+#
+# 0.1 s = 10 image pairs per second, which reads as live video to the eye. Not
+# 30: each pair is ~70 KB, so matching the camera would mean ~2 MB/s of
+# continuous disk churn to redraw frames the browser cannot show any faster
+# than it repaints anyway. Raise it if the page still feels choppy.
+#
+# Quality 70 rather than 80: at 10 fps the bytes are what limits the refresh,
+# and the difference is invisible under a translucent mask overlay.
+preview:
+  enabled: true
+  interval_s: 0.1
+  max_width: 960
+  jpeg_quality: 70
+  draw_polygons: true
