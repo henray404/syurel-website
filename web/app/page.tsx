@@ -1,10 +1,9 @@
 import { getDb } from "@/lib/db";
+import { kapan, prakiraan, WARN_JAM } from "@/lib/bmkg";
 import { readLatest } from "@/lib/latest";
 import { buildNotifications } from "@/lib/notifikasi";
-import { formatRelative, formatUntil } from "@/lib/waktu";
+import { formatRelative } from "@/lib/waktu";
 import { DEFAULT_AREA_THRESHOLD, formatCoverage, verdict } from "@/lib/verdict";
-import { fisika, formatCm, loadSite, type Fisika } from "@/lib/fisika";
-import { EMPTY_RAIN, readRainfall, sourceLabel, type RainSummary } from "@/lib/hujan";
 import { Icon, type IconName } from "@/components/Icon";
 import { Shell } from "@/components/Shell";
 
@@ -41,33 +40,23 @@ function reading(v: number | null | undefined, unit: string) {
   return { text: `${v.toFixed(1).replace(".", ",")} ${unit}`, absent: false };
 }
 
-function mm(v: number | null): string {
-  return v === null || !Number.isFinite(v)
-    ? "tidak terukur"
-    : `${v.toFixed(1).replace(".", ",")} mm`;
+/** Satu baris prakiraan BMKG. warn = hujan cukup dekat untuk bersiap. */
+function garisHujan(p: Awaited<ReturnType<typeof prakiraan>>) {
+  if (p.status === "mati") return { teks: "Wilayah belum diatur", warn: false };
+  if (p.status === "gagal") return { teks: "BMKG tidak terhubung", warn: false };
+  if (p.hujan === null) {
+    return { teks: p.mm24 === null ? "Tidak ada data" : "Tidak ada hujan", warn: false };
+  }
+  return { teks: `${p.hujan.desc} ${kapan(p.hujan.jam)}`, warn: p.hujan.jam <= WARN_JAM };
 }
 
-export default function OperatorPage() {
+export default async function OperatorPage() {
   const db = getDb();
   const latest = readLatest(db);
   const v = verdict(latest.obs);
   const now = new Date();
   const b = BANNER[v.state];
-
-  // Each optional block fails on its own. A missing site config or an absent
-  // rainfall table must not take down the water level and the verdict.
-  let fis: Fisika | null = null;
-  try {
-    fis = fisika(latest.obs?.accumulation_frac ?? null, loadSite());
-  } catch {
-    fis = null;
-  }
-  let rain: RainSummary = EMPTY_RAIN;
-  try {
-    rain = readRainfall(db, now);
-  } catch {
-    rain = EMPTY_RAIN;
-  }
+  const hujanBMKG = garisHujan(await prakiraan(now));
 
   const water = reading(latest.esp?.tinggi_cm, "cm");
   const hujanSensor = reading(latest.esp?.mm_per_jam, "mm/jam");
@@ -110,6 +99,32 @@ export default function OperatorPage() {
           )}
         </div>
       </section>
+
+      {/* Prakiraan, bukan pengukuran: dipisah dari kartu sensor supaya operator
+          tidak pernah membacanya sebagai hujan yang sedang turun di bendungan. */}
+      <div
+        className="card"
+        style={
+          hujanBMKG.warn
+            ? { background: "var(--watch-bg)", color: "var(--watch-fg)" }
+            : undefined
+        }
+      >
+        <div className="card-head" style={{ alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Icon name="rain" size={22} color={hujanBMKG.warn ? "var(--watch)" : "var(--muted)"} />
+            <span className="card-title">
+              {hujanBMKG.warn ? "Hujan diperkirakan turun" : "Prakiraan hujan"}
+            </span>
+          </div>
+          <span style={{ fontSize: 15, fontWeight: 800 }}>{hujanBMKG.teks}</span>
+        </div>
+        {/* Atribusi BMKG syarat pakai, bukan sopan santun -- ini tidak boleh
+            ikut dipangkas selama angka BMKG tampil di layar. */}
+        <div className="foot" style={hujanBMKG.warn ? { color: "inherit", opacity: 0.85 } : undefined}>
+          Sumber: BMKG
+        </div>
+      </div>
 
       <div className="grid2">
         <div className="card">
@@ -168,127 +183,6 @@ export default function OperatorPage() {
           Ambang {formatCoverage(DEFAULT_AREA_THRESHOLD)} · Kamera: {camAge} · disegarkan tiap 30
           detik
         </div>
-      </div>
-
-      {/* --- physics ------------------------------------------------------ */}
-      {fis && (
-        <div className="card">
-          <div className="card-head" style={{ alignItems: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <Icon name="monitoring" size={22} color="var(--muted)" />
-              <span className="card-title">Perkiraan kenaikan muka air</span>
-            </div>
-            {!fis.calibrated && <span className="badge-warn">BELUM DIKALIBRASI</span>}
-          </div>
-
-          <div className="grid3" style={{ marginTop: 14 }}>
-            <div>
-              <div className="foot" style={{ marginTop: 0 }}>
-                Afflux (batas atas)
-              </div>
-              <div className={`card-value${fis.affluxM === null ? " absent" : ""}`}>
-                {fis.beyondModel ? "Di luar model" : formatCm(fis.affluxM)}
-              </div>
-            </div>
-            <div>
-              <div className="foot" style={{ marginTop: 0 }}>
-                Sisa ke jalan
-              </div>
-              <div className={`card-value${fis.marginToRoadM === null ? " absent" : ""}`}>
-                {formatCm(fis.marginToRoadM)}
-              </div>
-            </div>
-            <div>
-              <div className="foot" style={{ marginTop: 0 }}>
-                Jalan tergenang di
-              </div>
-              <div className={`card-value${fis.criticalBf === null ? " absent" : ""}`}>
-                {fis.criticalBf === null ? "tidak terhitung" : formatCoverage(fis.criticalBf)}
-              </div>
-            </div>
-          </div>
-
-          <div className="foot">
-            {/* "Batas atas", not "kenaikan": this is ARR's Reduced Area Method,
-                which ARR says overestimates head for blockage at the entrance
-                -- 28% high in their worked 50% case. Conservative is the right
-                side to err on for a flood warning, but it has to be said.
-                docs/referensi_fisika.md */}
-            h/h₀ = 1/(1−BF)² · orifis USBR (Cd 0,61) · metode luas-tereduksi ARR, condong
-            berlebih · docs/referensi_fisika.md
-            {!fis.calibrated && (
-              <>
-                {" · "}
-                <strong>
-                  Ukuran pintu masih tebakan. Isi configs/site_geometry.json setelah survei —
-                  kesalahan BF dikuadratkan di sini.
-                </strong>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* --- external rainfall --------------------------------------------- */}
-      <div className="card">
-        <div className="card-head" style={{ alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Icon name="rain" size={22} color="var(--muted)" />
-            <span className="card-title">Hujan regional (API eksternal)</span>
-          </div>
-          <span className="hint">{sourceLabel(rain.forecastSource)}</span>
-        </div>
-
-        {rain.available ? (
-          <>
-            <div className="grid3" style={{ marginTop: 14 }}>
-              <div>
-                <div className="foot" style={{ marginTop: 0 }}>
-                  24 jam terakhir
-                </div>
-                <div className={`card-value${rain.mm24h === null ? " absent" : ""}`}>
-                  {mm(rain.mm24h)}
-                </div>
-              </div>
-              <div>
-                <div className="foot" style={{ marginTop: 0 }}>
-                  Prakiraan 24 jam
-                </div>
-                <div className={`card-value${rain.mmNext24h === null ? " absent" : ""}`}>
-                  {mm(rain.mmNext24h)}
-                </div>
-              </div>
-              <div>
-                <div className="foot" style={{ marginTop: 0 }}>
-                  Hujan berikutnya
-                </div>
-                <div className={`card-value${rain.nextRainTs === null ? " absent" : ""}`}>
-                  {/* formatUntil, not formatRelative: this timestamp is in the
-                      future by design, and formatRelative clamps the future to
-                      "baru saja" to absorb device clock skew. */}
-                  {rain.nextRainTs
-                    ? (formatUntil(rain.nextRainTs, now) ?? "—")
-                    : "tak ada dalam prakiraan"}
-                </div>
-              </div>
-            </div>
-            <div className="foot">
-              {/* Not a courtesy: BMKG requires attribution to be displayed, and
-                  the grid caveat is what stops these numbers being read as the
-                  rainfall at the gate. */}
-              Sumber: BMKG dan Open-Meteo (ERA5). Petak 9–25 km, sedangkan sel hujan tropis 2–5 km —
-              ini <strong>sinyal regional</strong>, bukan hujan di bendungan. Angka lokal yang sahih
-              datang dari tipping bucket di kartu atas.
-            </div>
-          </>
-        ) : (
-          <p className="empty">
-            Belum ada data. Isi <code>site.lat</code>, <code>site.lon</code>, dan{" "}
-            <code>site.adm4</code> di <code>configs/site_geometry.json</code>, lalu jalankan:
-            <br />
-            <code>PYTHONPATH=src python -m external.rainfall --db out/webcam/timeseries.sqlite</code>
-          </p>
-        )}
       </div>
     </Shell>
   );

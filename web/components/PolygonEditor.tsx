@@ -148,6 +148,18 @@ export function PolygonEditor({ onClose }: { onClose: () => void }) {
         </button>
       </div>
 
+      {/* Beside the button that causes it, not under the picture.
+          The frame is 4/3 at full card width -- around 850 px tall -- so a status
+          line below it sits off-screen from where Simpan was clicked. A refusal
+          nobody can see reads exactly like a save that silently failed, and
+          "roi: minimal 3 titik" is the common one: BOTH polygons must be valid
+          before either can be stored. */}
+      {status && (
+        <div className="foot" style={{ marginTop: 8, color: "var(--ink)", fontWeight: 600 }}>
+          {status}
+        </div>
+      )}
+
       <div className="foot" style={{ marginTop: 8, marginBottom: 12 }}>
         {STYLE[which].help}
       </div>
@@ -207,12 +219,9 @@ export function PolygonEditor({ onClose }: { onClose: () => void }) {
       <div className="foot">
         {STYLE[which].label} · {current.length} titik
         {current.length > 0 && current.length < MIN_POINTS && ` (butuh ${MIN_POINTS})`}
+        {" · ROI "}
+        {roi.length} titik · Zona pintu {structure.length} titik
       </div>
-      {status && (
-        <div className="foot" style={{ color: "var(--ink)" }}>
-          {status}
-        </div>
-      )}
     </div>
   );
 }

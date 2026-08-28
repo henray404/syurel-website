@@ -55,9 +55,9 @@ syurell/
 │   │   ├── demo/               Halaman demo kamera langsung
 │   │   └── api/                5 endpoint (lihat berkas 05)
 │   ├── components/             LiveDemo, PolygonEditor, Shell, Icon
-│   ├── lib/                    db, latest, join, verdict, fisika, hujan,
-│   │                           polygons, waktu, esp-csv, ingest, live, notifikasi
-│   └── tests/                  10 berkas uji
+│   ├── lib/                    db, latest, join, verdict, polygons, waktu,
+│   │                           esp-csv, ingest, live, notifikasi, bmkg
+│   └── tests/                  11 berkas uji
 │
 ├── firmware/esp32/             PlatformIO — ESP32
 │   ├── include/

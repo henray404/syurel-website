@@ -6,7 +6,9 @@ Setiap angka di bawah berasal dari **panggilan HTTP nyata**, bukan dari membaca
 dokumentasi. Klaim yang tidak diuji ditandai begitu.
 
 Kode: [`src/external/rainfall.py`](../src/external/rainfall.py) ·
-Tampilan: kartu "Hujan regional" di [`web/app/page.tsx`](../web/app/page.tsx)
+Tampilan: **tidak ada lagi** — kartu "Hujan regional" sudah dihapus dari halaman
+operator. Data tetap diambil dan tersimpan di tabel `rainfall`; yang hilang hanya
+jalurnya ke layar. Baca §4 soal akibatnya pada atribusi.
 
 ---
 
@@ -61,8 +63,10 @@ tetap disebut sebagai sumber lokal yang sahih.
 | **Pembanding** | Open-Meteo arsip | Bukti independen bahwa tipping bucket membaca waras |
 | **Peringatan dini** | BMKG | Sumber resmi Indonesia; jauh lebih kuat dipertahankan di sidang daripada layanan asing |
 
-Web memilih BMKG lebih dulu untuk prakiraan, dan jatuh ke Open-Meteo kalau BMKG
-tidak tersedia ([`web/lib/hujan.ts`](../web/lib/hujan.ts)).
+Web dulu memilih BMKG lebih dulu untuk prakiraan dan jatuh ke Open-Meteo kalau
+BMKG tidak tersedia; logika itu ada di `web/lib/hujan.ts`, yang ikut terhapus
+bersama kartunya. Urutan prioritas yang sama masih berlaku di sisi pengambilan
+data, [`src/external/rainfall.py`](../src/external/rainfall.py).
 
 ---
 
@@ -73,7 +77,19 @@ syarat pemakaian, bukan sopan santun. Repositori resmi `infoBMKG/data-cuaca`
 menyatakan bahwa BMKG wajib dicantumkan sebagai sumber data dan ditampilkan pada
 aplikasi atau sistem yang memakainya.
 
-Dipenuhi di kaki kartu "Hujan regional". **Jangan hapus baris itu.**
+Dulu dipenuhi di kaki kartu "Hujan regional". Kartu itu sudah dihapus, jadi
+**saat ini tidak ada atribusi BMKG yang tampil di mana pun di aplikasi.**
+
+Selama tidak ada layar yang menampilkan data BMKG, tidak ada yang dilanggar —
+kewajibannya melekat pada aplikasi yang *memakai dan menampilkan* datanya. Dua
+hal yang tetap wajib:
+
+1. **Begitu angka BMKG muncul lagi di layar mana pun**, atribusinya ikut muncul
+   di layar itu. Ini syarat pemakaian, bukan sopan santun.
+2. **Data BMKG tetap masuk tabel `rainfall`** dan bisa dipakai di analisis
+   laporan. Kalau angkanya dikutip di laporan, BMKG dicantumkan di daftar
+   pustaka — sudah terdaftar sebagai sumber D2 di
+   [`laporan/10-referensi-batasan-ai.md`](laporan/10-referensi-batasan-ai.md).
 
 Open-Meteo meminta sitasi `Zippenfenig, P. (2023). Open-Meteo.com Weather API`
 beserta sumber dasarnya (ECMWF, Copernicus). Masukkan ke daftar pustaka laporan.

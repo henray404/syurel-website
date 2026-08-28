@@ -18,7 +18,8 @@ graph TB
         SD[("Kartu SD<br/>sumber kebenaran")]
         SIM["SIM800L<br/>SMS"]
         RLY["Relai pompa"]
-        CAM["Kamera<br/>Insta360 Link / webcam"]
+        CAM["Insta360 Link<br/>kamera USB"]
+        PI["Raspberry Pi 5<br/>unit kamera"]
     end
 
     subgraph KOMPUTER["Komputer pemantau"]
@@ -44,7 +45,8 @@ graph TB
     SIM -.SMS.-> OPR
 
     SD -->|"HTTP POST /api/ingest<br/>tiap 5 menit"| WEB
-    CAM -->|"bingkai"| INF
+    CAM -->|"USB"| PI
+    PI -->|"MJPEG 640x360<br/>TBCare.local:81/stream"| INF
     INF -->|"tulis observations"| DB
     INF -->|"tulis pratinjau"| LIVE
     WEB -->|"tulis esp_readings"| DB
@@ -58,8 +60,77 @@ graph TB
     WEB --> OPR
 ```
 
-**Yang perlu diperhatikan dari gambar ini:** tidak ada satu pun panah dari web
-ke proses inferensi selain lewat berkas. Itu disengaja, dan alasannya di §3.5.
+**Dua hal yang perlu diperhatikan dari gambar ini.**
+
+Pertama, tidak ada satu pun panah dari web ke proses inferensi selain lewat
+berkas. Itu disengaja, dan alasannya di §3.5.
+
+Kedua, **kamera tidak menempel pada komputer pemantau.** Ia menempel pada
+Raspberry Pi di lokasi, yang mengalirkan MJPEG lewat jaringan. Batas itu adalah
+satu-satunya tempat citra menyeberangi kabel, dan menaruhnya di sana membuat
+mesin bergpu boleh berada di mana saja — termasuk jauh dari sungai. Pi tidak
+menjalankan model; rinciannya di [04 §4.7](04-spesifikasi.md).
+
+---
+
+### 3.1b Penempatan fisik — apa yang di lapangan, apa yang di server
+
+Diagram §3.1 menunjukkan aliran data. Diagram ini menunjukkan **di mana tiap
+bagian benar-benar berada**, karena batas fisik itulah yang menentukan apa yang
+selamat saat sesuatu mati.
+
+```mermaid
+flowchart TB
+    subgraph SUNGAI["Di tepi sungai — bertenaga terbatas"]
+        direction TB
+        subgraph U1["Unit sensor"]
+            ESP["ESP32<br/>+ microSD"]
+            S1["Ultrasonik<br/>JSN-SR04T"]
+            S2["Tipping bucket"]
+            S3["RTC DS3231"]
+            S4["SIM800L"]
+            S1 -.-> ESP
+            S2 -.-> ESP
+            S3 -.-> ESP
+            ESP -.-> S4
+        end
+        subgraph U2["Unit kamera"]
+            PI["Raspberry Pi 5<br/>16 GB"]
+            CAM["Insta360 Link"]
+            CAM -.USB.-> PI
+        end
+    end
+
+    subgraph RUANG["Di ruang kendali — listrik tetap"]
+        GPU["Laptop bergpu<br/>RTX 5050"]
+        DB[("timeseries.sqlite")]
+        GPU --- DB
+    end
+
+    OPR(["Operator"])
+
+    ESP ==>|"WiFi · POST tiap 5 menit"| GPU
+    PI  ==>|"WiFi · MJPEG kontinu"| GPU
+    S4  -.->|"SMS"| OPR
+    GPU ==>|"HTTP :8000"| OPR
+```
+
+**Yang menentukan pembagian ini:** perangkat di tepi sungai harus murah, tahan
+cuaca, dan hemat daya. GPU tidak memenuhi satu pun dari ketiganya. Karena itu
+tidak ada model yang berjalan di lapangan — yang ada di sana hanya pembaca sensor
+dan pengalir video.
+
+**Konsekuensi yang harus diakui, dan berbeda untuk tiap unit:**
+
+| Kalau server mati | Unit sensor | Unit kamera |
+|---|---|---|
+| Data saat itu | **Selamat** — ditulis ke microSD dulu | **Hilang** — tidak disimpan di Pi |
+| Setelah server hidup | Baris tertunda terkirim menyusul | Mulai dari bingkai baru |
+| Peringatan ke operator | **Tetap jalan** — SMS lewat SIM800L | Tidak ada |
+
+Baris terakhir itu yang paling berarti untuk sistem peringatan banjir: **jalur SMS
+tidak melewati server sama sekali.** ESP32 mengirimnya langsung lewat SIM800L, jadi
+peringatan tingkat BAHAYA tetap sampai meski seluruh sisi komputer padam.
 
 ---
 
@@ -100,7 +171,7 @@ flowchart LR
         A1["pulseIn(ECHO)"] --> A2["5 sampel<br/>logic_median"]
         A2 --> A3["jarak_cm"]
         A3 --> A4["tinggi = JARAK_DASAR − jarak"]
-        A5["ISR tip<br/>debounce 250 ms"] --> A6["60 bin 1 menit<br/>logic_rain"]
+        A5["ISR tip<br/>debounce 250 ms"] --> A6["10 bin 1 menit<br/>logic_rain"]
         A6 --> A7["mm_per_jam"]
         A4 --> A8["LevelFsm<br/>histeresis + dwell"]
         A7 --> A8
@@ -117,17 +188,143 @@ flowchart LR
         B7 --> B8["alert 0/1"]
     end
 
-    subgraph C["Gabungan di web"]
-        C1["verdict()"]
-        C2["fisika()<br/>1/(1−BF)²"]
+    subgraph C["Gabungan"]
+        C1["verdict()<br/>web/lib/verdict.ts"]
+        C2["physics.py<br/>1/(1−BF)²"]
     end
 
     A9 --> C1
     B8 --> C1
-    B5 --> C2
+    B5 -.-> C2
     C1 --> D(["Putusan operator"])
-    C2 --> D
+    C2 -.->|"tidak ditampilkan"| D
 ```
+
+> **Garis putus-putus itu bukan hiasan.** Rantai afflux tetap dihitung di
+> `src/physics.py`, tetapi **tidak lagi sampai ke layar** — kartu "Perkiraan
+> kenaikan muka air" dihapus dari halaman operator, dan kembaran TypeScript-nya
+> (`web/lib/fisika.ts`) ikut terhapus. Yang menentukan apa yang dibaca operator
+> sekarang hanyalah `verdict()`.
+>
+> Ini layak disebut karena operator justru meminta **debit air** sebagai
+> informasi utama (bagian G2 wawancara), dan perhitungannya sudah ada — hanya
+> jalur tampilnya yang belum.
+
+### 3.3b Alur keputusan per bingkai — apa yang benar-benar terjadi tiap putaran
+
+Diagram §3.3 menunjukkan ke mana data mengalir. Diagram ini menunjukkan
+**percabangannya**: apa yang diperiksa gelung inferensi pada setiap putaran, dan
+kapan sebuah bingkai dilewati tanpa menghasilkan baris.
+
+```mermaid
+flowchart TD
+    START(["Putaran gelung"]) --> CTRL{"Sudah 0,5 detik<br/>sejak cek kendali?"}
+    CTRL -->|ya| POLY["Baca polygons.json<br/>+ control.json"]
+    CTRL -->|belum| READ
+    POLY --> PCHG{"Poligon<br/>berubah?"}
+    PCHG -->|ya| PRESET["masks = None<br/>deret TIDAK direset"]
+    PCHG -->|tidak| CSW
+    PRESET --> CSW{"Diminta ganti<br/>kamera?"}
+    CSW -->|ya| COPEN{"Sumber baru<br/>bisa dibuka?"}
+    CSW -->|tidak| READ
+    COPEN -->|ya| CRESET["Ganti sumber<br/>reset SELURUH deret"]
+    COPEN -->|tidak| CKEEP["Tolak, tetap di kamera lama<br/>catat error ke status.json"]
+    CRESET --> READ
+    CKEEP --> READ
+
+    READ["cap.read()"] --> OK{"Bingkai<br/>terbaca?"}
+    OK -->|tidak| LIVE{"Sumber<br/>langsung?"}
+    LIVE -->|tidak — berkas| DONE(["Selesai — video habis"])
+    LIVE -->|ya — aliran| RECON["Sambung ulang<br/>jeda 1-2-4-8-16-30 detik"]
+    RECON --> RRESET["prev_ts = None<br/>estimator kecepatan direset<br/>masks = None"]
+    RRESET --> READ
+
+    OK -->|ya| MASK{"masks<br/>sudah ada?"}
+    MASK -->|belum| BUILD["Bangun mask ROI + zona pintu<br/>dari poligon ternormalisasi"]
+    MASK -->|sudah| FLOW
+    BUILD --> FLOW["Aliran optik<br/>-> kecepatan permukaan"]
+
+    FLOW --> TTHR{"Sudah lewat<br/>trash_interval?"}
+    TTHR -->|ya| INFER["SegFormer-B0<br/>segmentasi 640 px"]
+    TTHR -->|belum| CACHE["Pakai mask sampah<br/>yang di-cache"]
+    INFER --> WTHR{"Sudah lewat<br/>water_interval?"}
+    CACHE --> WTHR
+    WTHR -->|ya| WUP["Perbarui mask air"]
+    WTHR -->|belum| WCACHE["Pakai mask air<br/>yang di-cache"]
+
+    WUP --> HAVE
+    WCACHE --> HAVE{"Kedua mask<br/>sudah ada?"}
+    HAVE -->|belum| SKIP["Lewati bingkai ini<br/>TIDAK menulis baris"]
+    SKIP --> START
+    HAVE -->|ya| METRIC["frame_metrics()<br/>coverage, accumulation_frac"]
+
+    METRIC --> MON["BlockageMonitor<br/>ambang + laju tumbuh"]
+    MON --> WRITE["Tulis baris observations"]
+    WRITE --> PREV["Tulis frame.jpg + mask.jpg<br/>throttle 0,1 detik"]
+    PREV --> FLUSH{"Sudah 0,5 detik<br/>sejak commit?"}
+    FLUSH -->|ya| COMMIT["sink.flush()"]
+    FLUSH -->|belum| START
+    COMMIT --> START
+```
+
+**Empat keputusan di diagram ini yang tidak terlihat dari kode sepintas:**
+
+**Poligon berubah tidak mereset deret, ganti kamera mereset.** Menggambar ulang
+zona pintu hanya memindahkan wilayah yang dihitung pada adegan yang sama, jadi
+riwayat penghalusan tetap sebanding. Ganti kamera berarti adegannya benar-benar
+lain — seluruh pengukuran terkumpul menjadi tidak berlaku.
+
+**Kamera yang gagal dibuka tidak menjatuhkan gelung.** Permintaan ditolak,
+alasannya ditulis ke `status.json`, dan sistem tetap mengukur dengan kamera lama.
+Padam karena seseorang salah pilih perangkat adalah kegagalan yang lebih buruk
+daripada permintaan yang ditolak.
+
+**Bingkai tanpa mask lengkap dilewati, bukan ditulis nol.** Ini penerapan langsung
+aturan "tidak ada pengukuran ≠ nol" pada tingkat gelung.
+
+**Sumber langsung menyambung ulang, berkas berakhir.** Batas waktu baca FFmpeg
+tiba di titik yang sama persis dengan akhir video, sehingga keduanya harus
+dibedakan dari jenis sumbernya, bukan dari gejalanya.
+
+---
+
+### 3.3c Mesin keadaan level — histeresis dan dwell
+
+`LevelFsm` di firmware bukan sekadar perbandingan ambang. Ia mesin keadaan dengan
+dua sifat yang mencegah alarm berkedip.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> AMAN
+
+    AMAN --> WASPADA: h > WASPADA_ENTER (3,0 cm)<br/>atau hujan > 10 mm/jam
+    AMAN --> BAHAYA: h > BAHAYA_ENTER (4,5 cm)<br/>atau hujan > 30 mm/jam
+    WASPADA --> BAHAYA: h > BAHAYA_ENTER
+    BAHAYA --> WASPADA: h < BAHAYA_EXIT (3,5 cm)<br/>DAN bertahan 60 detik
+    WASPADA --> AMAN: h < WASPADA_EXIT (2,0 cm)<br/>DAN bertahan 60 detik
+
+    note right of BAHAYA
+        Bacaan tidak sah TIDAK PERNAH
+        menurunkan status - data hilang
+        bukan bukti keadaan aman
+    end note
+```
+
+| Sifat | Nilai | Kenapa |
+|---|---|---|
+| Naik | **seketika** | Menunda peringatan banjir tidak bisa dibenarkan |
+| Turun — ambang | `EXIT` ≠ `ENTER` | Selisih 1 cm lebih lebar daripada sebaran ±0,5 cm antar-ping, jadi riak di sekitar ambang tidak membalik keadaan |
+| Turun — waktu | `DWELL_DOWN_MS` 60 detik | Harus stabil di bawah ambang keluar selama satu menit penuh |
+| Bacaan tidak sah | **menahan keadaan** | De-eskalasi saat sensor gagal akan mematikan pompa di tengah banjir |
+
+**Ambang masuk memakai `>` (tegas), ambang keluar memakai `>=`.** Perbedaan satu
+karakter itu diuji langsung: nilai tepat di `WASPADA_ENTER` tidak boleh naik
+status, dan nilai tepat di `WASPADA_EXIT` masih terhitung WASPADA. Mutasi `>`
+menjadi `>=` disuntikkan sengaja dan tertangkap oleh uji batas
+([08 §8.4](08-protokol-uji.md)).
+
+---
 
 ### Empat angka yang keluar dari rantai ini
 
@@ -206,6 +403,58 @@ menulis separuhnya saat itu ketahuan.
 `(device, ts_epoch)` membuat pengiriman ulang tidak berefek. Ini penting karena
 firmware mengirim ulang setiap kali tanggapan hilang di jalan — dan tanggapan
 yang hilang tidak bisa dibedakan dari permintaan yang tidak pernah sampai.
+
+---
+
+### 3.4b Alur keputusan `/api/ingest` — semua atau tidak sama sekali
+
+Endpoint ini punya aturan yang tidak biasa dan wajib digambarkan, karena
+melanggarnya berarti kehilangan data secara permanen: **2xx adalah janji bahwa
+setiap baris sudah tersimpan.** Firmware memajukan kursor SD-nya hanya pada 2xx
+dan tidak pernah mengirim ulang baris itu.
+
+```mermaid
+flowchart TD
+    IN(["POST /api/ingest"]) --> J{"Badan berupa<br/>JSON sah?"}
+    J -->|tidak| E400A["400 — body is not valid JSON"]
+    J -->|ya| DEV{"device ada<br/>dan bukan kosong?"}
+    DEV -->|tidak| E400B["400 — device is required"]
+    DEV -->|ya| ARR{"rows berupa<br/>larik?"}
+    ARR -->|tidak| E400C["400 — rows must be an array"]
+    ARR -->|ya| PARSE["Urai SELURUH baris<br/>SEBELUM menyentuh basis data"]
+
+    PARSE --> BAD{"Ada baris<br/>yang gagal urai?"}
+    BAD -->|ya| E400D["400 — rows[i]: alasan<br/>NOL baris disimpan"]
+    BAD -->|tidak| EMPTY{"Ada baris<br/>yang sah?"}
+
+    EMPTY -->|tidak| OK200A["200 inserted: 0<br/>batch kosong bukan galat"]
+    EMPTY -->|ya| TX["Satu transaksi<br/>INSERT OR IGNORE"]
+    TX --> LOCK{"Basis data<br/>terkunci?"}
+    LOCK -->|ya, >5 detik| E503["503 — firmware mencoba lagi<br/>kursor SD TIDAK maju"]
+    LOCK -->|tidak| OK200B["200 inserted: n<br/>kursor SD boleh maju"]
+
+    style E400D fill:#f8d7da,stroke:#842029
+    style OK200B fill:#d1e7dd,stroke:#0f5132
+```
+
+**Tiga keputusan di diagram ini, semuanya berakar pada satu janji itu:**
+
+**Penguraian selesai sebelum penulisan dimulai.** Satu baris rusak menolak seluruh
+batch. Menerima sebagiannya lalu menjawab 2xx akan membuang sisanya selamanya,
+karena firmware menganggap seluruh batch sudah aman.
+
+**Batch kosong menjawab 200, bukan 400.** Berkas hanya berisi header bukan
+kegagalan — tidak ada yang perlu disimpan, dan tidak ada yang salah.
+
+**Kunci basis data menjawab 503, bukan menunggu selamanya.** Batas tunggu 5 detik
+jauh lebih lama daripada penulisan apa pun yang nyata (di bawah satu milidetik),
+sehingga penulis yang benar-benar macet muncul sebagai galat yang bisa dicoba
+ulang firmware — bukan sebagai permintaan yang menggantung.
+
+**Kirim ulang aman.** Kunci utama `(device, ts_epoch)` membuat `INSERT OR IGNORE`
+pada baris yang sudah ada tidak melakukan apa pun; kiriman kedua menjawab
+`inserted: 0` dengan status 200. Ini penting karena tanggapan yang hilang di
+jaringan tidak bisa dibedakan dari permintaan yang tidak pernah sampai.
 
 ---
 
@@ -290,19 +539,39 @@ dari perilakunya saat rusak, bukan saat mulus.
 | Yang mati | Akibat langsung | Yang tetap jalan | Ditandai di UI? |
 |---|---|---|---|
 | Kamera | `accumulation_frac` berhenti | Tinggi air, hujan, SMS | Ya — "Belum ada pengukuran" |
+| Raspberry Pi mati | Aliran video berhenti; tidak ada citra yang tersimpan di Pi | Tinggi air, hujan, SMS | Ya — kartu Penumpukan menua |
+| Jaringan Pi → server terputus | Sama; `run.py` menyambung ulang sendiri | Sisanya | Ya, lewat umur data |
 | ESP32 | Tinggi air & hujan titik berhenti | Kamera, fisika, putusan | Ya — sumber ditandai sunyi >20 menit |
 | WiFi di ESP32 | Unggah tertunda | **Semua** — SD terus mencatat, SMS terus terkirim | Tidak langsung; terlihat dari umur data |
 | Ultrasonik | `tinggi_cm` hilang | Hujan, SMS, FSM **menahan** level | Ya — `valid=0` tersimpan |
 | Server web mati | Unggah gagal | Firmware & inferensi jalan terus | — |
-| `site_geometry.json` hilang | Kartu fisika kosong | Tinggi air & putusan penyumbatan | Ya — kartu "tidak tersedia" |
-| Tabel `rainfall` belum ada | Kartu hujan regional kosong | Sisanya | Ya |
+| `site_geometry.json` hilang | `src/physics.py` tidak bisa dijalankan | Seluruh tampilan web | Hanya di keluaran skrip |
+| Tabel `rainfall` belum ada | `src/external/rainfall.py` belum pernah dijalankan | Seluruh tampilan web | Hanya di keluaran skrip |
+
+Dua baris terakhir dulu mengosongkan kartu di halaman operator. Sejak kartu
+"Perkiraan kenaikan muka air" dan "Hujan regional" dihapus, keduanya tidak lagi
+punya jalur ke layar — fisika afflux dan curah hujan eksternal sekarang murni
+sisi Python.
 
 Dua pola yang berulang di tabel ini, dan keduanya disengaja:
 
-1. **Kegagalan bersifat lokal.** Endpoint `/api/latest` membungkus blok fisika
-   dan hujan dalam `try` masing-masing. Geometri lokasi yang hilang tidak boleh
-   menjatuhkan tinggi air dan putusan penyumbatan — dua angka yang benar-benar
-   ditindaklanjuti operator.
+1. **Kegagalan bersifat lokal.** Kamera mati tidak menjatuhkan tinggi air, dan
+   ESP32 yang sunyi tidak menjatuhkan putusan penyumbatan. Tiap sumber membawa
+   umurnya sendiri ke layar, jadi satu yang diam tidak menyeret yang lain.
+   **Sumber langsung menyambung ulang, berkas tidak.** `run.py` membedakan
+   keduanya lewat `is_live_source()`: berkas video yang habis memang berakhir,
+   tetapi aliran MJPEG yang berhenti 30 detik hanyalah tautan yang putus — batas
+   waktu baca FFmpeg tiba di titik yang sama persis dengan akhir video. Gelungnya
+   kini menyambung ulang dengan jeda menaik 1→2→4→8→16→30 detik alih-alih keluar.
+   `[TERUKUR]` 2026-08-28: sumber diputus sengaja, tersambung kembali pada
+   percobaan ke-3.
+
+   Yang di-atur ulang saat pulih hanyalah yang dirusak jeda: `prev_ts` (tanpa itu
+   `dt` menjadi selama durasi putus, dan kecepatan permukaan runtuh ke ~0 px/detik
+   sehingga `area_flux` ikut salah) dan estimator kecepatan (bingkai acuannya dari
+   sebelum putus, jadi aliran optik lintas jeda tak bermakna). Penghalus dan
+   monitor penyumbatan **dipertahankan** — adegannya sama.
+
 2. **Sunyi selalu tampak.** Tidak ada layar yang menampilkan angka lama seolah
    baru. `waktu.ts` menghitung "5 menit lalu" sungguhan, dan `notifikasi.ts`
    menandai sumber sebagai sunyi setelah `STALE_AFTER_MINUTES` = 20.

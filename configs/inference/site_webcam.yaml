@@ -55,8 +55,16 @@ models:
 # Do not copy these values to a site config. site_bendungan.yaml samples every
 # 30 s deliberately -- impounded water drifts over minutes, and on a Raspberry Pi
 # a per-frame forward pass would burn the power budget for an identical curve.
+# A NETWORK STREAM is not a local camera. A webcam drops frames nobody reads; an
+# MJPEG socket QUEUES them, so a loop slower than the 30 fps being sent backs the
+# buffer up until FFmpeg's 30 s read timeout fires and the stream dies. Measured
+# 2026-08-27 against the Pi: at 0.0 the run lasted 88 s before exactly that.
+#
+# 0.15 s = ~7 inferences/s, far inside the GPU's 35 fps, so the loop spends the
+# rest of its time draining the socket instead of falling behind it. For --source 0
+# on a local webcam 0.0 was fine and still is.
 sampling:
-  trash_interval_s: 0.0
+  trash_interval_s: 0.15
   water_interval_s: 0.5   # denominator still cached: it stops coverage flickering
 
 # PLACEHOLDERS, and this file cannot be anything else -- they depend on what you
@@ -121,3 +129,10 @@ preview:
   max_width: 960
   jpeg_quality: 70
   draw_polygons: true
+  # Debris only. The blue water tint is off, so the overlay shows what the model
+  # found floating, against the scene as the camera saw it.
+  #
+  # DISPLAY ONLY -- the water mask still runs and still forms the denominator of
+  # `coverage`, so every stored number is unchanged. Set this back to true when
+  # the question is whether the water segmentation itself is right.
+  draw_water: false

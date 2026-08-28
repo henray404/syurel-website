@@ -16,8 +16,9 @@
     "nama": "Bendung gerak (belum disurvei)",
     "lat": null,
     "lon": null,
-    "adm4": null,
-    "_catatan": "lat/lon wajib untuk Open-Meteo; adm4 (kode wilayah desa, mis. 35.15.09.2003) wajib untuk BMKG. Ambil koordinat saat survei dengan GPS HP, cocokkan adm4 dari kode wilayah Kemendagri."
+    "adm4": "35.15.13.1018",
+    "_catatan": "lat/lon wajib untuk Open-Meteo; adm4 (kode wilayah desa) wajib untuk BMKG. Ambil koordinat saat survei dengan GPS HP.",
+    "_adm4_sumber": "Desa Ketegan, Kec. Taman, Kab. Sidoarjo -- desa SMPN 1 Taman. Diverifikasi 2026-08-27 lewat panggilan nyata ke api.bmkg.go.id: balasan menyebut desa Ketegan, lat -7.3475, lon 112.7071. GANTI kalau bendung/jembatan yang dipakai ada di desa lain; prakiraan BMKG per desa, 3-jaman."
   },
 
   "gate": {

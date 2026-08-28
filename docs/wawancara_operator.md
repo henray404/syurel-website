@@ -5,8 +5,10 @@ apakah proyek ini tentang **peringatan dini penyumbatan**, atau tentang
 **pemantauan aliran sampah**. Jangan menganotasi 400 frame sebelum pertanyaan itu
 terjawab.
 
-Versi web untuk dibuka di HP saat di lokasi:
-<https://claude.ai/code/artifact/94e6fe06-d406-4936-9e73-f36a8bfca277>
+> **Wawancara putaran pertama sudah dilaksanakan.** Jawabannya, beserta pertanyaan
+> yang belum terjawab dan kontradiksi yang tersisa, ada di
+> [`hasil_wawancara_operator.md`](hasil_wawancara_operator.md). Panduan ini tetap
+> dipakai untuk kunjungan kedua.
 
 Bagian dari [`rencana_penelitian.md`](rencana_penelitian.md) Fase 0.
 

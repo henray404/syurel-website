@@ -64,7 +64,7 @@ CREATE INDEX idx_esp_ts ON esp_readings(ts_epoch);
 | `n_sampel` | INTEGER | — | Jumlah bacaan sah di balik `tinggi_cm` — **kualitas data di dalam rekaman** | ya |
 | `tip_total` | INTEGER | — | Penghitung tip kumulatif sejak boot | ya |
 | `tip_menit` | INTEGER | — | Tip pada menit itu | ya |
-| `mm_per_jam` | REAL | mm/jam | Hujan 60 menit terakhir (jumlah 60 bin, **bukan** ekstrapolasi) | ya |
+| `mm_per_jam` | REAL | mm/jam | Hujan dalam jendela `RAIN_WINDOW_MIN` (10 menit), dijumlahkan lalu diskalakan sekali ke laju per jam — **bukan** ekstrapolasi satu menit | ya |
 | `level` | TEXT | — | `AMAN` \| `WASPADA` \| `BAHAYA` | ya |
 | `pompa` | INTEGER | 0/1 | Keadaan relai | ya |
 | `time_src` | TEXT | — | `ntp` \| `rtc` \| `none` — asal jam untuk baris ini | ya |
@@ -79,10 +79,22 @@ melakukan apa pun. Firmware mengirim ulang setiap kali tanggapan hilang, dan
 tanggapan hilang tidak bisa dibedakan dari permintaan yang tidak pernah sampai.
 
 **`n_sampel` disimpan, bukan dibuang.** Ia bukan angka pengukuran, melainkan
-kualitas pengukuran. Justru kolom inilah yang mengungkap bug ultrasonik yang
-masih terbuka: `n_sampel = 0` di seluruh 25 baris berarti tidak ada satu pun
-sampel sah di balik `tinggi_cm`. Tanpa kolom ini, `tinggi_cm = 0.0` akan terbaca
-sebagai "air setinggi nol", bukan "tidak ada pengukuran".
+kualitas pengukuran. Tanpa kolom ini, `tinggi_cm = 0.0` akan terbaca sebagai
+"air setinggi nol", bukan "tidak ada pengukuran".
+
+> **Yang tersimpan sampai 27 Agustus 2026 bukan pengukuran.** Seluruh 219 baris
+> membawa `tinggi_cm` **persis 4,6** dan `jarak_cm` **persis 35,4**, tanpa satu
+> pun variasi. Itu `SIMULASI_TINGGI_CM` dan `JARAK_DASAR − SIMULASI_TINGGI_CM`
+> dari `firmware/esp32/include/config.h`: firmware berjalan dengan
+> `MODE_SIMULASI 1`, yang memaksa nilai tetap dan **juga memaksa `valid = true`**.
+>
+> Karena itu `valid = 1` pada 194 baris **bukan** bukti sensor bekerja. Begitu
+> pula `n_sampel` 3–4: `main.cpp:360` mengisinya dengan `minuteCount`, yaitu
+> jumlah sampel per menit, bukan jumlah ping ultrasonik yang sah.
+>
+> `MODE_SIMULASI` dimatikan pada 2026-08-28. Baris yang direkam setelah firmware
+> itu di-flash adalah pengukuran; baris sebelumnya tidak, dan tidak boleh dikutip
+> sebagai pengukuran.
 
 **Laju perubahan tidak disimpan.** Komentar di `logic_csv.h` menyatakannya:
 laju naik, percepatan, dan jarak-ke-ambang semuanya bisa dihitung ulang dari
@@ -182,6 +194,8 @@ benar-benar terukur di pintu air.
 | POST | `/api/polygons` | Simpan poligon | **202** |
 | GET | `/api/live/frame` | JPEG bingkai terakhir | 200 |
 | GET | `/api/live/mask` | JPEG mask terakhir | 200 |
+| POST | `/api/live/frame` | Terima bingkai dari unit kamera jarak jauh | 200 |
+| POST | `/api/live/mask` | Terima mask dari inferensi jarak jauh | 200 |
 
 Seluruh endpoint memakai `dynamic = "force-dynamic"`; tidak ada yang di-cache.
 
@@ -282,25 +296,15 @@ bersama.
     "detail": "Sekarang 24,0%, naik 0,4% per menit.",
     "minutesToThreshold": 15.0
   },
-  "fisika": {
-    "bf": 0.24,
-    "beyond_model": false,
-    "afflux_ratio": 1.73,
-    "afflux_m": 0.59,
-    "head_m": 1.39,
-    "critical_bf": 0.29,
-    "margin_to_road_m": 0.21,
-    "calibrated": false
-  },
-  "hujan": { "...": "ringkasan per jendela" }
 }
 ```
 
-**Aturan degradasi.** Blok `fisika` dan `hujan` gagal secara mandiri, dan itu
-disengaja: geometri lokasi yang hilang atau tabel hujan yang belum ada tidak
-boleh menjatuhkan tinggi air dan putusan penyumbatan — dua angka yang
-benar-benar ditindaklanjuti operator. Keduanya menjadi `null` / kosong, dan
-kartunya menampilkan "tidak tersedia".
+**Blok `fisika` dan `hujan` sudah tidak ada.** Endpoint ini pernah
+mengembalikan keduanya untuk kartu "Perkiraan kenaikan muka air" dan "Hujan
+regional"; kedua kartu itu dihapus dari halaman operator, jadi kuncinya ikut
+dibuang daripada dikirim tanpa pembaca. Rantai afflux tetap hidup di
+`src/physics.py`, dan tabel `rainfall` tetap diisi `src/external/rainfall.py` —
+yang hilang hanya jalur tampilannya.
 
 **`esp` dan `obs` bernilai `null` bila belum ada datanya**, tidak pernah nol.
 `verdict.state` menjadi `"unknown"` dan halaman menampilkan "Belum ada
@@ -399,7 +403,7 @@ lain akan diabaikan diam-diam — operator menggambar zona pintu, halaman bilang
 
 ---
 
-## 5.9 `GET /api/live/{frame|mask}`
+## 5.9 `/api/live/{frame|mask}`
 
 Menyajikan dua JPEG yang ditulis `src/inference/preview.py`. Berkas ini tidak
 bisa tinggal di `web/public`: direktori itu bagian dari repo, sementara berkas
@@ -424,6 +428,52 @@ menggambar keadaan "belum ada" dari 404 itu.
 > kali per detik; menyalin setiap satunya mengaduk megabita per detik lewat
 > generasi muda dan mematikan server pengembangan dengan
 > `NewSpace::EnsureCurrentCapacity Allocation failed` setelah ~95 detik.
+
+### `POST /api/live/{frame|mask}` — unggahan dari unit kamera
+
+Jalur masuk untuk gelung inferensi atau unit kamera yang berjalan di **mesin
+lain**, yaitu Raspberry Pi di [04 §4.7](04-spesifikasi.md).
+
+**Badan telanjang, bukan multipart.** Pengirimnya skrip, bukan formulir peramban,
+sehingga `requests.post(url, data=jpeg_bytes)` sudah seluruh kliennya. Multipart
+hanya menambah nama medan yang tak seorang pun butuhkan dan pengurai yang tak
+seorang pun sebaiknya rawat.
+
+```
+POST http://<IP-LAN>:8000/api/live/frame
+Content-Type: image/jpeg
+Badan: bita JPEG mentah
+```
+
+| Kode | Arti | Badan |
+|---|---|---|
+| 200 | Tersimpan di disk dengan nama finalnya | `{"name":"frame","bytes":68}` |
+| 400 | Badan kosong | `{"error":"empty body"}` |
+| 404 | Nama bukan `frame`/`mask` | `{"error":"unknown preview: status"}` |
+| 413 | Melebihi 5 MB | `{"error":"body over 5242880 bytes"}` |
+| 415 | Bukan JPEG (tiga bita pertama bukan `FF D8 FF`) | `{"error":"body is not a JPEG..."}` |
+
+`[TERUKUR]` — keenam baris di atas keluaran nyata dari uji HTTP 2026-08-27,
+termasuk percobaan traversal `../../etc/passwd` yang dijawab 404 oleh himpunan
+tertutup yang sama.
+
+Tiga penolakan itu ada karena alasan yang sudah pernah menggigit sesuatu di repo
+ini:
+
+1. **Nama tidak pernah menyentuh sistem berkas.** Dipetakan lewat himpunan
+   tertutup, sama seperti jalur `GET` di atas.
+2. **Bita harus berbentuk JPEG.** Halaman demo merender apa pun yang ada di sana
+   sebagai `<img>`; POST terpotong yang menyimpan 40 bita sampah akan tampil
+   sebagai gambar rusak di bawah cap waktu yang hidup — persis kegagalan yang
+   ingin dicegah dasbor ini.
+3. **Penulisan bersifat atomik** (`.nama.upload.tmp` lalu `rename`). `preview.py`
+   memakai pola yang sama karena server web membaca `frame.jpg` di setiap polling;
+   unggahan yang menulis di tempat akan menyerahkan setengah bingkai ke pembaca.
+
+**Tidak ada antrean ulang-kirim, dan itu disengaja.** Bingkai yang gagal terkirim
+sudah basi sebelum sempat dikirim ulang, jadi pengirim cukup melewatkannya dan
+mengirim yang berikutnya. Ini kebalikan dari `/api/ingest`, yang kursor SD-nya
+hanya maju setelah 2xx justru karena baris pengukuran tidak boleh hilang.
 
 ---
 

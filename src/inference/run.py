@@ -117,6 +117,26 @@ def open_source(source: str) -> cv2.VideoCapture:
     return cap
 
 
+# Backoff between reconnect attempts on a live source. Starts at a second so a
+# single hiccup costs almost nothing, and caps at half a minute so a camera that
+# is genuinely switched off overnight is retried at a rate that costs nothing
+# either. Tune the cap for a site where the link is known to be worse.
+RECONNECT_FIRST_DELAY_S = 1.0
+RECONNECT_MAX_DELAY_S = 30.0
+
+
+def reconnect_delay(attempt: int) -> float:
+    """Seconds to wait before try number `attempt` (1-based): 1, 2, 4, 8, 16, 30, 30...
+
+    The exponent is clamped BEFORE the power, not after. Capping the result of
+    `2.0 ** attempt` looks equivalent and is not: a camera that stays off raises
+    `attempt` every 30 s, which reaches four figures in a few days and overflows
+    the float. The loop that survives an outage must not die of its own counter.
+    """
+    steps = min(max(attempt, 1) - 1, 32)
+    return min(RECONNECT_MAX_DELAY_S, RECONNECT_FIRST_DELAY_S * 2.0**steps)
+
+
 def run(config_path: Path, source: str, max_frames: int | None = None) -> dict[str, Any]:
     cfg = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
     schema = load_schema()
@@ -269,7 +289,57 @@ def run(config_path: Path, source: str, max_frames: int | None = None) -> dict[s
 
             ok, frame = cap.read()
             if not ok:
-                break
+                # A FILE that ends is finished. A LIVE source that stops is a
+                # link that dropped, and quitting is the wrong answer: the Pi's
+                # MJPEG stream pausing for 30 s is enough for FFmpeg's read
+                # timeout to fire, which arrives here identically to a video
+                # running out. This loop is meant to sit at a gatehouse for
+                # days; going dark on the first hiccup makes it useless there.
+                if not live:
+                    break
+
+                cap.release()
+                print(f"[stream] {active_source} stopped delivering -- reconnecting")
+                write_status(
+                    live_dir,
+                    active=active_source,
+                    devices=devices,
+                    error=f"sumber {active_source!r} terputus, mencoba menyambung ulang",
+                )
+
+                attempt = 0
+                while True:
+                    attempt += 1
+                    delay = reconnect_delay(attempt)
+                    time.sleep(delay)
+                    candidate = cv2.VideoCapture(
+                        int(active_source) if active_source.isdigit() else active_source
+                    )
+                    if candidate.isOpened():
+                        cap = candidate
+                        break
+                    candidate.release()
+                    # Every attempt, not every tenth: this line is how an
+                    # operator reading the log tells "still retrying" from
+                    # "wedged". At the 30 s cap that is two lines a minute.
+                    print(f"[stream] attempt {attempt} failed, waiting {delay:.0f}s")
+
+                print(f"[stream] reconnected after {attempt} attempt(s)")
+                write_status(live_dir, active=active_source, devices=devices)
+
+                # Reset only what the GAP invalidated, not the measurement series.
+                #
+                # The scene is the same one, so smoother and monitor keep their
+                # history -- same reasoning as a polygon redraw. But two things
+                # do not survive a gap: dt would be the whole outage (a 90 s
+                # divisor turns real motion into ~0 px/s and poisons area_flux),
+                # and the velocity estimator's previous frame is from before the
+                # outage, so optical flow against it is meaningless.
+                prev_ts = None
+                velocity = VelocityEstimator(velocity_params)
+                # Cheap, and the stream may come back at a different resolution.
+                masks = None
+                continue
 
             # Wall clock for a live stream; frame-derived for a file, so replaying
             # a recording produces the same timestamps every time. See

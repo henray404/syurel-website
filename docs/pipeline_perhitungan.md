@@ -82,8 +82,8 @@ kursor SD pada 2xx dan tak pernah mengirim ulang baris itu.
 
 ## Rantai C — Fisika (afflux)
 
-Kode: [`src/physics.py`](../src/physics.py) ·
-cermin: [`web/lib/fisika.ts`](../web/lib/fisika.ts) ·
+Kode: [`src/physics.py`](../src/physics.py) — satu-satunya implementasi sejak
+cermin TypeScript-nya (`web/lib/fisika.ts`) dihapus bersama kartunya ·
 parameter: [`configs/site_geometry.json`](../configs/site_geometry.json) ·
 **sumber literatur: [`referensi_fisika.md`](referensi_fisika.md)**
 
@@ -191,7 +191,9 @@ fisika. Yang perlu diukur saat survei:
 ## Rantai D — Hujan eksternal
 
 Lihat [`data_eksternal.md`](data_eksternal.md). Ringkas: tiga API publik tanpa
-kunci → tabel `rainfall` → kartu "Hujan regional".
+kunci → tabel `rainfall`. Rantai ini **berhenti di basis data** — kartu "Hujan
+regional" yang dulu menampilkannya sudah dihapus, jadi datanya sekarang hanya
+untuk analisis, bukan untuk layar operator.
 
 **Selalu ditandai sebagai sinyal regional**, karena petaknya 9–25 km sementara
 sel hujan tropis 2–5 km.

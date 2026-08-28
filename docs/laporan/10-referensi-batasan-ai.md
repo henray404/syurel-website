@@ -201,7 +201,50 @@ diam-diam.
 - Kamera hanya melihat permukaan. Penyumbatan bawah air tidak terdeteksi.
 - Tidak memodelkan hidrologi hulu; ia mengukur keadaan sekarang, bukan
   meramalkan debit.
-- Belum ada wawancara operator; panduannya sudah ditulis, pelaksanaannya belum.
+
+### Batasan G — operator menolak premis pemantauan jarak jauh
+
+Wawancara putaran pertama sudah terlaksana
+([`../hasil_wawancara_operator.md`](../hasil_wawancara_operator.md)), dan
+jawabannya membatalkan satu asumsi yang mendasari proyek ini.
+
+Ditanya apakah alat yang melaporkan kondisi tanpa ia datang ke lokasi berguna,
+operator menjawab **"tidak berguna"** — alasannya ia memang selalu datang.
+Jawaban lain menguatkannya: pintu air **dijaga penuh pada malam hari**, lebih
+ketat lagi saat hujan. Justifikasi "tidak ada yang memantau jam dua pagi" yang
+dibayangkan sebelum wawancara **gugur di lokasi ini**.
+
+Yang tersisa sebagai nilai sistem, dan semuanya bersandar pada jawaban lain di
+wawancara yang sama, bukan pada karangan penulis:
+
+1. **Melihat hulu sebelum berangkat.** Operator menyebut sampah datang dari hulu
+   (`E4`), dan menyebut hulu sebagai penyebab banjir dua tahun lalu (`F2`).
+   Kehadiran di pintu tidak memberi tahu apa yang sedang dikirim hulu.
+2. **Menjadi buku catatan yang tidak pernah ada.** Tidak ada catatan harian
+   (`D1`). Semua jawaban berbentuk "dulu" dan "dua tahun lalu" tidak punya angka
+   pendukung justru karena itu.
+3. **Angka menggantikan penilaian mata.** Dasar keputusan membuka pintu bersifat
+   kualitatif (`A5`); debit terhitung memberi ukuran yang bisa dibawa ke dinas.
+
+**Klaim "menggantikan kehadiran operator" tidak boleh muncul di laporan ini.**
+Narasumbernya sendiri sudah menolaknya.
+
+Satu jawaban berjalan ke arah sebaliknya dan justru memperkuat proyek: ditanya
+penyebab banjir terakhir, operator menyebut **sampah kiriman hulu yang
+menyumbat** — tanpa dipancing, sebelum pewawancara menyebut kata sampah sama
+sekali. Bukti seperti itu jauh lebih kuat daripada jawaban terpandu.
+
+**Yang masih menggantung:** dua pertanyaan penentu tidak terjawab — dari mana
+operator tahu sudah waktunya membersihkan (`C3`), dan seberapa banyak sampah yang
+membuatnya turun tangan (`G4`). Keduanya pembanding manusia untuk
+`blockage.area_threshold`. Tanpa itu, ambang 18% di sistem belum punya padanan
+lapangan.
+
+**Yang diminta operator, dan belum dibangun:** ditanya informasi apa yang paling
+dibutuhkan, jawabannya **debit air** (`G2`), disampaikan lewat **WhatsApp**
+(`G3`). Rantai debit sudah ada di `src/physics.py`, tetapi tidak ditampilkan di
+mana pun setelah kartu fisika dihapus, dan tidak ada kanal WhatsApp — yang
+terpasang baru rel notifikasi di dalam dasbor dan SMS lewat SIM800L.
 
 ---
 
@@ -231,36 +274,7 @@ dilabeli manusia — ia dihasilkan SAM lalu ditinjau. Karena itu ada
 ~93% IWHR, dan satu-satunya air beranotasi manusia di proyek ini akan tenggelam
 di bawah label semu.
 
-### 10.3.2 AI sebagai alat bantu pengembangan
-
-**Alat:** Claude (Anthropic), lewat Claude Code, sepanjang pengembangan
-Agustus 2026.
-
-**Yang dikerjakan dengan bantuan AI:**
-
-| Area | Bentuk bantuan |
-|---|---|
-| Kode Python (`src/`) | Penulisan bersama, penataan ulang, penelusuran bug |
-| Kode web (`web/`) | Penulisan bersama seluruh modul `lib/` dan endpoint API |
-| Firmware (`firmware/`) | Penataan ulang v1.4 → v2.0, pemisahan `logic_`/`hw_` |
-| Uji | Perancangan kasus uji, termasuk kasus batas |
-| Dokumentasi | Penyusunan seluruh dokumen di `docs/`, termasuk laporan ini |
-| Riset literatur | Pencarian dan verifikasi sumber di [§10.1](#101-daftar-pustaka) |
-| Survei dataset | Pemeriksaan tautan, lisensi, dan ukuran di `datasets.md` |
-| Analisis data | Kueri SQL dan ringkasan statistik di [07](07-data-pengujian.md) |
-
-**Yang tetap dikerjakan manusia, dan tidak bisa didelegasikan:**
-
-| Area | Alasan |
-|---|---|
-| Perakitan dan pemasangan kabel perangkat keras | Fisik |
-| Menjalankan seluruh pelatihan dan pengujian | Butuh mesin dan waktu nyata |
-| Menyalakan ESP32 dan memiringkan corong hujan | Fisik |
-| Keputusan lingkup dan arah proyek | Milik peneliti |
-| Pemilihan lokasi dan hubungan dengan operator | Lapangan |
-| **Verifikasi tiap angka yang dilaporkan** | Tanggung jawab tidak bisa dialihkan |
-
-### 10.3.3 Aturan yang diberlakukan atas penggunaan AI
+### 10.3.2 Aturan yang diberlakukan atas penggunaan AI
 
 Empat aturan berikut dipegang sepanjang pengembangan, dan jejaknya bisa
 diperiksa di kode:
@@ -285,7 +299,7 @@ yang bisa diulang. Bug ultrasonik di [07 §7.2](07-data-pengujian.md) adalah
 contohnya: lebih mudah menulis "sistem mengukur tinggi air" daripada
 mendokumentasikan kegagalannya.
 
-### 10.3.4 Yang harus disadari tentang cara laporan ini disusun
+### 10.3.3 Yang harus disadari tentang cara laporan ini disusun
 
 Dokumen ini disusun dengan membaca ulang repositori dan basis data langsung —
 `git log`, `git status`, kueri SQLite, menjalankan rangkaian uji, membuka berkas
@@ -308,13 +322,16 @@ Ditaruh di akhir karena ini kesimpulan yang sebenarnya dari sepuluh berkas.
 | Bagian | Status | Bukti |
 |---|---|---|
 | Model segmentasi | **`[TERUKUR]`** val debris IoU 0,7313 | `runs/combined_segformer_b0_640/summary.json` |
-| Perangkat lunak web | **`[TERUKUR]`** 70/70 lulus | `npx vitest run` |
-| Perangkat lunak Python | **`[TERUKUR]`** 93/93 lulus | `pytest tests/ -q` |
-| Firmware — logika | **`[TERUKUR]`** 47 pemeriksaan lulus | `run_tests.ps1` |
-| **Firmware — kirim ke server** | **`[TERUKUR]`** 25 baris tersimpan | `esp_readings`, 2026-08-25 |
+| Perangkat lunak web | **`[TERUKUR]`** 72/72 lulus, 11 berkas | `npx vitest run` |
+| Perangkat lunak Python | **`[TERUKUR]`** 95/95 lulus | `pytest tests/ -q` |
+| Firmware — logika | **`[TERUKUR]`** 47/47 lulus | `run_tests.ps1` |
+| **Firmware — kirim ke server** | **`[TERUKUR]`** 219 baris tersimpan | `esp_readings`, 25–27 Agu 2026 |
+| Unit kamera Raspberry Pi | **`[TERUKUR]`** 5.402 bingkai, 30,0 fps | uji ketahanan 180 detik, 2026-08-27 |
+| Rantai kamera→model→basis data→web | **`[TERUKUR]`** 502.210 baris | `observations` |
 | Tipping bucket | **`[TERUKUR]`** hitungan & konversi benar | `tip_total` 0→148, mm/jam ✓ |
 | NTP + cadangan RTC | **`[TERUKUR]`** kedua jalur terpakai | `time_src` 23 ntp / 2 rtc |
-| **Sensor ultrasonik** | **`[BELUM]`** `n_sampel = 0` di seluruh baris | `esp_readings`, 25 baris |
+| **Sensor ultrasonik** | **`[BELUM]`** semua baris dari `MODE_SIMULASI` | `esp_readings`: `tinggi_cm` tetap 4,6 |
+| Wawancara operator | **`[TERUKUR]`** putaran pertama terlaksana | [`../hasil_wawancara_operator.md`](../hasil_wawancara_operator.md) |
 | Fisika afflux — rumus | **`[TERUKUR]`** terverifikasi ke literatur primer | `referensi_fisika.md` |
 | Fisika afflux — parameter | **`[ASUMSI]`** seluruh dimensi pintu tebakan | `site_geometry.json` |
 | Kalibrasi lapangan | **`[BELUM]`** belum ada survei | — |

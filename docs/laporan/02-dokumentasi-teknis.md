@@ -9,6 +9,102 @@ Rincian antarmuka (skema tabel, bentuk permintaan/tanggapan API) ada di
 [05-database-api.md](05-database-api.md); diagram alirnya di
 [03-arsitektur.md](03-arsitektur.md).
 
+Urutannya dari lebar ke dalam: §2.0 memberi bentuk keseluruhan sistem, §2.1
+memberi empat aturan yang berlaku di mana-mana, lalu §2.2–2.4 membedah tiap
+bagian satu per satu.
+
+---
+
+## 2.0 Bentuk teknis proyek ini
+
+### A. Empat bahasa, satu sistem
+
+Tiap bahasa dipakai di tempat yang tidak bisa diisi bahasa lain — bukan karena
+selera.
+
+| Bahasa | Di mana | Baris `[TERUKUR]` | Kenapa bahasa itu |
+|---|---|---|---|
+| Python | `src/` | 7.246 + 1.277 uji | Seluruh ekosistem visi komputer dan PyTorch ada di sana |
+| TypeScript | `web/` | 3.008 | Harus berjalan di peramban yang dibuka operator |
+| C++ | `firmware/esp32/` | 956 + 322 uji | ESP32 tidak menjalankan yang lain |
+| SQL | skema basis data | — | Satu berkas, tanpa server yang harus dijaga hidup |
+
+Angka baris dihitung dengan `wc -l` pada 2026-08-28, di luar `node_modules` dan
+lingkungan virtual.
+
+Sisi Python sendiri terbagi menurut tugas: `data/` 2.070 baris (konversi dan
+skema label), `inference/` 1.715 (gelung waktu-nyata), `train/` 882, `gui/` 761,
+`bench/` 680, `models/` 584, `external/` 289, dan `physics.py` 265.
+
+### B. Empat proses yang berdiri sendiri
+
+Yang berjalan bersamaan saat sistem hidup penuh:
+
+| Proses | Berjalan di | Tugas |
+|---|---|---|
+| Firmware ESP32 | Lapangan | Baca ultrasonik & tipping bucket, catat ke microSD, unggah lewat WiFi |
+| Server MJPEG | Raspberry Pi 5 di lapangan | Buka kamera, alirkan video |
+| `inference.run` | Server bergpu | Segmentasi tiap bingkai, tulis `observations` dan pratinjau |
+| Next.js | Server yang sama, port 8000 | Terima unggahan ESP32, sajikan dasbor |
+
+**Tidak satu pun memanggil yang lain secara langsung.** Perpindahan hanya lewat
+dua jalur: HTTP, atau berkas di disk. Tidak ada pemanggilan fungsi lintas proses,
+tidak ada RPC, tidak ada proses yang menyalakan proses lain.
+
+Konsekuensinya, sistem ini bisa diperbaiki sepotong-sepotong: server web boleh
+dimatikan dan dinyalakan ulang tanpa menyentuh gelung inferensi, dan sebaliknya.
+Keduanya sudah dilakukan berkali-kali selama pengembangan.
+
+**Pembagian lapangan versus server disengaja, dan akibatnya asimetris.** ESP32 dan
+Pi sama-sama berada di lokasi, tetapi hanya ESP32 yang selamat saat server mati:
+ia menulis tiap baris ke microSD lebih dulu dan memajukan kursor unggah **hanya**
+setelah server menjawab 2xx, sehingga baris tertunda terkirim menyusul. Pi tidak
+menyimpan apa pun — video yang tidak terbaca hilang begitu saja. Itu batas nyata,
+dan wajar untuk pratinjau: bingkai yang gagal terkirim sudah basi sebelum sempat
+dikirim ulang.
+
+### C. Satu titik temu, bukan antrean pesan
+
+Seluruh sistem bertemu di **satu berkas SQLite** dalam mode WAL, bukan di broker
+pesan atau basis data server.
+
+Itu cukup karena penulisnya sedikit dan sudah diketahui: gelung inferensi menulis
+`observations`, server web menulis `esp_readings`, pengambil hujan menulis
+`rainfall`. WAL mengizinkan banyak pembaca bersamaan dengan satu penulis — persis
+bentuk beban kerja ini.
+
+**Di titik mana ia akan patah:** begitu ada dua unit kamera yang menulis ke berkas
+yang sama, atau begitu berkasnya harus dibagi lewat jaringan. SQLite di atas SMB
+atau NFS bukan pilihan — penguncian WAL tidak diterapkan benar di kebanyakan mount
+jaringan, dan yang didapat bukan galat melainkan basis data rusak diam-diam.
+Alasan lengkapnya di [03 §3.6](03-arsitektur.md).
+
+### D. Dua jalur pengukuran yang saling bebas
+
+Sistem tidak punya satu sensor utama, melainkan dua rantai yang tidak saling
+bergantung:
+
+| Jalur | Mengukur | Berhenti kalau |
+|---|---|---|
+| Kamera → model | Fraksi tutupan sampah di zona pintu | Pi mati, jaringan putus, atau inferensi berhenti |
+| ESP32 → server | Tinggi muka air, curah hujan | ESP32 mati atau WiFi hilang |
+
+Salah satu berhenti, yang lain tetap mengukur **dan tetap tampil** — masing-masing
+membawa cap waktunya sendiri ke layar, sehingga yang diam terlihat sebagai diam,
+bukan tersamar oleh yang masih hidup. Tabel mode kegagalan lengkapnya di
+[03 §3.7](03-arsitektur.md).
+
+### E. Peta bacaan
+
+| Kalau ingin tahu | Buka |
+|---|---|
+| Skema tabel, bentuk permintaan/tanggapan API | [05-database-api.md](05-database-api.md) |
+| Diagram alir dan urutan waktu | [03-arsitektur.md](03-arsitektur.md) |
+| Kenapa modelnya SegFormer-B0, bukan enam kandidat lain | [06-model-ai.md](06-model-ai.md) |
+| Versi perangkat keras dan lunak yang benar-benar terpasang | [04-spesifikasi.md](04-spesifikasi.md) |
+| Cara mengulang tiap pengujian | [08-protokol-uji.md](08-protokol-uji.md) |
+| Apa tugas tiap modul dan mengapa dibuat begitu | **berkas ini, mulai §2.1** |
+
 ---
 
 ## 2.1 Empat aturan yang berlaku di seluruh kode
@@ -40,17 +136,20 @@ angka tersebar di `main.cpp`.
 
 ### Aturan 3 — Implementasi kembar harus diuji dengan angka yang sama
 
-Dua perhitungan sengaja ditulis dua kali, di Python dan di TypeScript:
+Satu perhitungan sengaja ditulis dua kali, di Python dan di TypeScript:
 
 | Perhitungan | Python | TypeScript | Penguji |
 |---|---|---|---|
-| Fisika afflux | `src/physics.py` | `web/lib/fisika.ts` | `tests/test_physics.py` + `web/tests/fisika.test.ts` |
 | Validasi poligon | `src/inference/control.py` (`valid_polygon`) | `web/lib/polygons.ts` | `tests/test_inference.py` + `web/tests/polygons.test.ts` |
 
 Kenapa tidak satu implementasi saja? Karena berbagi berarti web harus memanggil
 Python di tiap permintaan — lebih lambat dan lebih banyak cara gagal. Harganya:
-kedua sisi **wajib** diuji dengan angka yang sama. Komentar di `fisika.ts`
-menyebutnya eksplisit: *"MIRRORS src/physics.py — change one, change the other."*
+kedua sisi **wajib** diuji dengan angka yang sama.
+
+Fisika afflux dulu digandakan dengan cara yang sama, di `web/lib/fisika.ts`
+sebagai kembaran `src/physics.py`. Salinan TypeScript itu hilang bersama kartu
+"Perkiraan kenaikan muka air", jadi sekarang tinggal satu implementasi di
+Python — dan satu kewajiban sinkronisasi yang ikut lenyap.
 
 Bahaya yang dijaga di sisi poligon lebih tajam lagi: poligon yang lolos di web
 tapi ditolak di Python akan diabaikan diam-diam oleh gelung inferensi — operator
@@ -217,7 +316,7 @@ Tanpa Tailwind, tanpa pustaka komponen — CSS ditulis langsung di
 
 | Rute | Berkas | Isi |
 |---|---|---|
-| `/` | `app/page.tsx` | Halaman operator: putusan, tinggi air, hujan, fisika, rel notifikasi |
+| `/` | `app/page.tsx` | Halaman operator: putusan, tinggi air, curah hujan tipping bucket, penumpukan, rel notifikasi |
 | `/demo` | `app/demo/page.tsx` | Kamera langsung + penyunting poligon + pemilih kamera |
 
 ### Pustaka — `web/lib/`
@@ -230,8 +329,6 @@ Tanpa Tailwind, tanpa pustaka komponen — CSS ditulis langsung di
 | `latest.ts` | Baris terbaru dari tiap sisi (ESP dan kamera) |
 | `join.ts` | Menggabung dua deret pada jendela waktu |
 | `verdict.ts` | Putusan operator: `clear` / `watch` / `blocked` / `unknown` |
-| `fisika.ts` | Afflux untuk tampilan (kembaran `src/physics.py`) |
-| `hujan.ts` | Membaca tabel `rainfall`, meringkas per jendela |
 | `waktu.ts` | "5 menit lalu" dalam bahasa Indonesia |
 | `notifikasi.ts` | Membangun rel notifikasi dari baris yang sama dengan kartu |
 | `polygons.ts` | Kontrak poligon (kembaran `control.py`) |
@@ -349,7 +446,7 @@ Terbaca dari riwayat commit dan dokumen rencana:
 
 ```
 spesifikasi  →  rencana  →  uji dulu  →  implementasi  →  ukur  →  tulis
-docs/superpowers/specs/   tests/       src/            bench/   docs/
+docs/                     tests/       src/            bench/   docs/laporan/
 ```
 
 Bukti bahwa urutan ini benar-benar dipakai, bukan klaim: setiap bug di

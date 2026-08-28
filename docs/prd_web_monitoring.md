@@ -5,8 +5,8 @@ Tanggal: 2026-08-23 · Status: sebagian terbangun
 Dokumen ini menjawab **apa yang dibangun, untuk siapa, dan kapan disebut
 berhasil**. Cara membangunnya ada di dokumen terpisah:
 
-- Desain teknis: [`superpowers/specs/2026-08-20-monitoring-web-design.md`](superpowers/specs/2026-08-20-monitoring-web-design.md)
-- Rencana implementasi: [`superpowers/plans/2026-08-23-monitoring-web.md`](superpowers/plans/2026-08-23-monitoring-web.md)
+- Arsitektur dan kontrak antarmodul: [`laporan/03-arsitektur.md`](laporan/03-arsitektur.md)
+- Basis data dan API: [`laporan/05-database-api.md`](laporan/05-database-api.md)
 - Konteks penelitian: [`rencana_penelitian.md`](rencana_penelitian.md)
 
 **Penandaan angka** dipakai konsisten seperti di seluruh dokumen proyek:
@@ -153,9 +153,8 @@ Ambang `0.18` `[TEBAK]` — diturunkan dari penalaran fisik di
 `configs/inference/site_bendungan.yaml`, belum dikalibrasi data.
 
 **Logika ini dipisah dari tampilan.** Alasannya bukan kerapian: rancangan
-visual dikerjakan terpisah di Claude Design, dan pemisahan ini memastikan
-mengubah tampilan **tidak bisa** diam-diam mengubah apa yang dikatakan kepada
-operator.
+visual dikerjakan terpisah dari logika, dan pemisahan ini memastikan mengubah
+tampilan **tidak bisa** diam-diam mengubah apa yang dikatakan kepada operator.
 
 ### F5 — Halaman operator ⏳
 
@@ -236,6 +235,6 @@ firmware.
 
 ## 9. Rancangan visual
 
-Dikerjakan terpisah di Claude Design. Markup halaman operator sengaja dibuat
-polos: yang menentukan **apa** yang dikatakan adalah modul kesimpulan, bukan
+Dikerjakan terpisah sebagai berkas kanvas desain. Markup halaman operator
+sengaja dibuat polos: yang menentukan **apa** yang dikatakan adalah modul kesimpulan, bukan
 halaman — sehingga penataan ulang tampilan tidak dapat mengubah isi pesan.

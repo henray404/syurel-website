@@ -110,6 +110,28 @@ di [08-protokol-uji.md §8.6](08-protokol-uji.md).
 pengukuran utama proyek ini, dan sampai bug ini selesai, sistem **tidak
 mengukurnya**.
 
+> **Perkembangan 2026-08-28 — dan sensornya masih belum terbukti.**
+>
+> Sejak batch 25 Agustus di atas, `esp_readings` tumbuh menjadi **219 baris** dan
+> `n_sampel` tidak lagi nol melainkan 3–4. Sekilas itu tampak seperti sensor yang
+> sembuh. Bukan.
+>
+> Seluruh 219 baris membawa `tinggi_cm` **persis 4,6** dan `jarak_cm` **persis
+> 35,4**, tanpa variasi sedikit pun. Itu `SIMULASI_TINGGI_CM` dan
+> `JARAK_DASAR − SIMULASI_TINGGI_CM` dari `config.h`. Firmware berjalan dengan
+> `MODE_SIMULASI 1`, yang memaksa nilai tetap **dan memaksa `valid = true`** —
+> sehingga `valid = 1` pada 194 baris bukan bukti apa pun. Monitor serialnya
+> sendiri mencetak `[SIMULASI] tinggi air dipaksa 4.6 cm - sensor TIDAK dibaca`.
+>
+> `n_sampel` juga bukan indikator sensor: `main.cpp:360` mengisinya dengan
+> `minuteCount`, yaitu jumlah sampel per menit, bukan jumlah ping ultrasonik yang
+> sah. Kolom itu naik dari nol karena irama penjadwalan berubah, bukan karena
+> sensor mulai terbaca.
+>
+> `MODE_SIMULASI` dimatikan pada 2026-08-28. **Status tetap `[BELUM]` sampai ada
+> baris yang direkam setelah firmware itu di-flash**, karena sampai saat itu tidak
+> ada satu pun pengukuran tinggi air yang tersimpan — hanya konstanta.
+
 ---
 
 ## 7.3 Pengujian kamera — sesi webcam 2026-08-23/24
@@ -280,7 +302,7 @@ Daftar ini sama pentingnya dengan tabel-tabel di atas.
 | Tolok ukur di Raspberry Pi | **`[BELUM]`** | Angka latensi Pi masih ekstrapolasi |
 | Bacaan ultrasonik sah | **`[BELUM]`** | Lihat §7.2 |
 | Uji ketahanan jangka panjang (>30 jam) | **`[BELUM]`** | Kebocoran memori/berkas belum teruji |
-| Wawancara operator | **`[BELUM]`** | Panduan sudah ada di `docs/wawancara_operator.md`, pelaksanaannya belum |
+| Wawancara operator | **`[BELUM]`** | Putaran pertama sudah terlaksana dan tercatat di `docs/hasil_wawancara_operator.md`, tapi belum bisa dipakai sebagai data: dua pertanyaan penentu (`C3` ambang bersih-bersih, `G4` ambang bertindak) tidak terjawab, dan tanggal serta nama narasumber belum dicatat |
 
 ---
 

@@ -3,7 +3,7 @@
 Dashboard, and the ingest endpoint the ESP32 firmware posts to.
 
 - Kebutuhan produk: [`../docs/prd_web_monitoring.md`](../docs/prd_web_monitoring.md)
-- Desain teknis: [`../docs/superpowers/specs/2026-08-20-monitoring-web-design.md`](../docs/superpowers/specs/2026-08-20-monitoring-web-design.md)
+- Arsitektur dan kontrak: [`../docs/laporan/03-arsitektur.md`](../docs/laporan/03-arsitektur.md)
 
 ## Running
 

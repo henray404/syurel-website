@@ -74,6 +74,13 @@ class PreviewParams:
     # polygons in a fresh site config are placeholders, and seeing them
     # misaligned is the fastest way to find that out.
     draw_polygons: bool = True
+    # Tint the water class blue. Turn it off to show debris alone against the
+    # scene as the camera saw it.
+    #
+    # DISPLAY ONLY. The water mask still runs and still forms the denominator of
+    # `coverage`, so hiding it changes no stored number. The cost is that a
+    # wrong water mask becomes invisible -- turn this back on to check it.
+    draw_water: bool = True
 
 
 def overlay(
@@ -83,14 +90,17 @@ def overlay(
     structure: np.ndarray | None = None,
     params: PreviewParams | None = None,
 ) -> np.ndarray:
-    """Tint debris and water over a copy of the frame."""
+    """Tint debris over a copy of the frame, and water too unless turned off."""
     p = params or PreviewParams()
     out = frame.copy()
 
     tint = np.zeros_like(frame)
-    tint[combined == WATER] = WATER_BGR
-    tint[combined == DEBRIS] = DEBRIS_BGR
-    painted = (combined == WATER) | (combined == DEBRIS)
+    painted = combined == DEBRIS
+    tint[painted] = DEBRIS_BGR
+    if p.draw_water:
+        water = combined == WATER
+        tint[water] = WATER_BGR
+        painted = painted | water
     # Blend only where something was detected, so untouched pixels stay exactly
     # as the camera saw them -- a uniform blend washes out the whole image and
     # makes it hard to judge whether the mask is right.

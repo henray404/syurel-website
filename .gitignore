@@ -53,3 +53,14 @@ tests/firmware/*.exe
 
 # Run logs from the GUI, webcam, and dev servers.
 *.log
+
+# Berkas kerja lokal untuk asisten pengembangan dan catatan proses. Isinya
+# instruksi cara bekerja di repo ini, bukan bagian dari sistem yang dinilai.
+/CLAUDE.md
+/.claude/
+/.superpowers/
+/docs/superpowers/
+
+# Paket laporan siap kirim: hasil bundel dari docs/laporan/, dibuat ulang kapan
+# saja dan tidak perlu ikut ke riwayat.
+/docs/laporan.zip

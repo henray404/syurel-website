@@ -33,7 +33,12 @@ from inference.control import (
     write_status,
 )
 from inference.preview import LivePreview, PreviewParams, replace_with_retry
-from inference.run import is_live_source
+from inference.run import (
+    RECONNECT_FIRST_DELAY_S,
+    RECONNECT_MAX_DELAY_S,
+    is_live_source,
+    reconnect_delay,
+)
 from inference.sink import TimeSeriesSink
 
 SHAPE = (100, 100)
@@ -253,6 +258,27 @@ def test_live_sources_are_recognised_by_kind_not_by_reported_position() -> None:
     assert not is_live_source("river.mp4")
     assert not is_live_source("data/videos/loc1_test.mp4")
     assert not is_live_source(r"C:\videos\clip.mp4")
+
+
+def test_reconnect_delay_backs_off_then_caps():
+    # Doubling, so a one-frame hiccup costs a second rather than half a minute.
+    assert reconnect_delay(1) == RECONNECT_FIRST_DELAY_S
+    assert reconnect_delay(2) == 2.0
+    assert reconnect_delay(3) == 4.0
+    assert reconnect_delay(5) == 16.0
+
+    # Capped, or an overnight outage would push the wait into hours and the loop
+    # would take just as long to notice the camera came back.
+    assert reconnect_delay(6) == RECONNECT_MAX_DELAY_S
+    assert reconnect_delay(50) == RECONNECT_MAX_DELAY_S
+    assert reconnect_delay(10_000) == RECONNECT_MAX_DELAY_S
+
+
+def test_reconnect_delay_is_never_zero():
+    # A zero delay would turn a dead camera into a busy loop that spins the CPU
+    # and floods the log, which is how a "reconnect" makes an outage worse.
+    for attempt in (-5, 0, 1, 2, 7):
+        assert reconnect_delay(attempt) >= RECONNECT_FIRST_DELAY_S
 
 
 def test_preview_writes_are_atomic_and_throttled(tmp_path) -> None:

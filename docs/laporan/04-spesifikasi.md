@@ -111,16 +111,17 @@ masih tebakan.**
 | `site.lat` / `lon` | `null` | — | Untuk Open-Meteo | **wajib diisi saat survei** |
 | `site.adm4` | `null` | — | Kode wilayah desa untuk BMKG | mis. `35.15.09.2003` |
 
-**Selama `status` masih `UNCALIBRATED`,** web menandai setiap hasil fisika
-sebagai perkiraan kasar dan tidak menampilkannya sebagai peringatan. Kode
-memastikan itu: `load_site()` menganggap apa pun selain `"CALIBRATED"` eksplisit
-sebagai belum terkalibrasi, karena arah sebaliknya akan membiarkan satu kolom
-yang hilang diam-diam menaikkan tebakan jadi pengukuran.
+**Selama `status` masih `UNCALIBRATED`,** setiap hasil fisika diperlakukan
+sebagai perkiraan kasar, bukan peringatan. Kode memastikan itu: `load_site()`
+menganggap apa pun selain `"CALIBRATED"` eksplisit sebagai belum terkalibrasi,
+karena arah sebaliknya akan membiarkan satu kolom yang hilang diam-diam
+menaikkan tebakan jadi pengukuran.
 
-Berkas ini **JSON, bukan YAML**, karena dibaca dua sisi — Python
-(`src/physics.py`) dan web (`web/lib/fisika.ts`). Web tidak punya pengurai YAML
-tanpa menambah dependensi, dan dua salinan angka yang sama adalah cara paling
-pasti membuatnya berbeda.
+Berkas ini **JSON, bukan YAML**, karena dulu dibaca dua sisi — Python
+(`src/physics.py`) dan web (`web/lib/fisika.ts`), yang tidak punya pengurai YAML
+tanpa menambah dependensi. Sejak kartu "Perkiraan kenaikan muka air" dihapus,
+pembacanya tinggal Python. Formatnya tetap JSON: menggantinya sekarang hanya
+mengaduk berkas yang sudah bekerja, tanpa ada yang diuntungkan.
 
 ---
 
@@ -239,16 +240,45 @@ dipilih, ada di [06-model-ai.md](06-model-ai.md).
 | Peran | Yang dipakai sekarang | Kebutuhan minimum | Status |
 |---|---|---|---|
 | Pelatihan | RTX 5050 Laptop 8 GB, Ryzen 9 270 | GPU ≥8 GB VRAM | `[TERUKUR]` |
-| Inferensi (uji) | Mesin yang sama | GPU apa pun, atau CPU dengan laju rendah | `[TERUKUR]` |
-| Inferensi (target) | — | Raspberry Pi 5 | **`[BELUM]` belum pernah diuji di Pi** |
+| Inferensi | Mesin yang sama | GPU apa pun, atau CPU dengan laju rendah | `[TERUKUR]` |
+| Unit kamera lapangan | Raspberry Pi 5, RAM 16 GB | Pi mana pun yang sanggup MJPEG 640×360 | `[TERUKUR]` |
+| Kamera | Insta360 Link (USB) | Webcam UVC apa pun | `[TERUKUR]` |
 | Web | Mesin yang sama, port 8000 | Node 24 | `[TERUKUR]` |
-| Lapangan | ESP32 + MiFi | — | `[TERUKUR]` untuk unggah |
+| Sensor lapangan | ESP32 + MiFi | — | `[TERUKUR]` untuk unggah |
+
+**Pi tidak menjalankan model, dan itu disengaja.** Pembagiannya: Pi adalah mata,
+server adalah otak. Pi hanya membuka kamera dan mengalirkan MJPEG; seluruh
+segmentasi, fisika, basis data, dan halaman web berjalan di mesin bergpu.
+Alasannya, sebuah Pi murah dan hemat daya sehingga boleh berada di tepi sungai,
+sedangkan GPU tidak — dan menaruh model di Pi berarti membayar satu akselerator
+per titik pantau.
+
+Konsekuensinya harus disebut: **server wajib hidup.** Pi yang kehilangan server
+tidak menyimpan apa pun sendiri, berbeda dari ESP32 yang tetap mencatat ke
+microSD dan mengunggah menyusul. Lihat tabel mode kegagalan di
+[03 §3.7](03-arsitektur.md).
 
 **Yang wajib diakui:** seluruh angka latensi di `docs/model_comparison.md`
-diukur di x86, bukan di Raspberry Pi. `is_target_device` bernilai `false` di
-`configs/bench.yaml`. Pi 5 kira-kira satu orde lebih lambat dengan lebar SIMD
-berbeda dan bandwidth memori jauh lebih kecil, sehingga **urutan modelnya bisa
-berubah**, terutama untuk model berbasis atensi. Angka Pi masih ekstrapolasi.
+diukur di x86. `is_target_device` bernilai `false` di `configs/bench.yaml`.
+Selama inferensi tetap di server, angka itu sahih untuk sistem ini; ia baru
+menjadi tidak sahih bila model dipindahkan ke Pi — yang **bukan** rancangan
+sekarang.
+
+### Kinerja unit kamera `[TERUKUR]` 2026-08-27
+
+| Butir | Nilai |
+|---|---|
+| Aliran video | `http://TBCare.local:81/stream`, MJPEG 640×360 |
+| Citra diam | `http://TBCare.local/capture`, JPEG 1280×720, ±190 KB |
+| Server di Pi | `BaseHTTP/0.6 Python/3.13.5` |
+| Ketahanan | 5.402 bingkai dalam 180 detik, **30,0 fps**, jeda terburuk **0,18 detik** |
+| Penemuan alamat | mDNS `TBCare.local`, diverifikasi bisa dibuka OpenCV |
+
+**Pakai nama mDNS, bukan alamat IP.** Kedua perangkat memakai DHCP, dan alamat
+server sempat berpindah dua kali dalam satu jam pada 27 Agustus — setiap
+perpindahan membuat ESP32 senyap sampai `INGEST_URL` disunting dan firmware
+di-flash ulang. `TBCare.local` tidak punya masalah itu. Untuk sisi server,
+reservasi DHCP di router adalah perbaikan yang lebih tahan lama.
 
 ---
 

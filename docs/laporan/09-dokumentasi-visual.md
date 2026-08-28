@@ -139,6 +139,10 @@ mengilap sebagai `water` (biru) dan kain merah sebagai `debris` (merah muda).
 operator: susunan kartu putusan, tinggi air, curah hujan, fisika, dan rel
 notifikasi.
 
+> Rancangan ini **mendahului** penghapusan kartu "Perkiraan kenaikan muka air"
+> dan "Hujan regional". Kartu fisika masih tergambar di sana; di halaman yang
+> berjalan sekarang sudah tidak ada.
+
 Bagian desain yang **sengaja tidak diikuti** saat implementasi, karena
 implementasinya harus jujur:
 
@@ -150,7 +154,31 @@ implementasinya harus jujur:
 
 ---
 
-## 9.6 Yang BELUM ada
+## 9.6 Satu-satunya aset visual yang sudah ada
+
+**`image.png`** di akar repositori — foto lokasi sasaran. Ini satu-satunya bukti
+visual yang benar-benar dimiliki proyek sekarang, dan ia memuat lebih banyak
+daripada yang terlihat sekilas:
+
+| Yang terlihat | Kenapa berarti untuk laporan |
+|---|---|
+| Struktur pintu air biru di latar | Objek yang dipantau, dari sudut pandang jalan |
+| Sampah terapung di permukaan | Kangkung dan eceng gondok — persis jenis yang disebut operator di [`../hasil_wawancara_operator.md`](../hasil_wawancara_operator.md) `B6` |
+| Jalan beton di sisi kanan | Inilah `z_jalan_m` di dalam fisika. Ketinggiannya belum diukur — lihat `[ASUMSI]` di [04](04-spesifikasi.md) |
+| Pantulan cermin di air tenang | Bahaya anotasi nomor satu di lokasi ini (`annotation_guideline.md §2.2`). Foto ini membuktikan bahayanya nyata, bukan teoretis |
+| Permukiman rapat di seberang | Konteks risiko: siapa yang terdampak bila jalan tergenang |
+
+**Yang perlu diperbaiki sebelum dipakai di laporan:** berkasnya tangkapan layar,
+bukan foto langsung — ada bilah alat penyunting gambar menempel di tepi kanan
+yang harus dipotong. Sertakan tanggal dan arah pengambilan bila masih diingat;
+tanpa itu ia tidak bisa dirujuk sebagai bukti survei.
+
+`firmware/esp32/image.png` **bukan** foto: itu tangkapan tabel pinout, dan isinya
+sudah tersalin sebagai tabel di §9.3 berkas ini. Ia tidak menambah bukti apa pun.
+
+---
+
+## 9.6b Yang BELUM ada
 
 `[BELUM]` — seluruh baris di bawah.
 
@@ -159,13 +187,20 @@ implementasinya harus jujur:
 | Tangkapan layar halaman operator `/` | Bukti antarmuka utama |
 | Tangkapan layar halaman demo `/demo` | Bukti kamera langsung + penyunting poligon |
 | Tangkapan layar penyunting poligon saat dipakai | Bukti alur kendali lewat berkas |
+| Tangkapan layar panel "Deteksi model" | Bukti model bekerja pada adegan nyata |
 | Foto rangkaian ESP32 terpasang | Bukti perangkat keras nyata |
+| Foto Raspberry Pi + Insta360 Link terpasang | Bukti unit kamera lapangan ada wujudnya |
 | Foto tiap sensor terpasang di lokasi | Bukti pemasangan lapangan |
 | Foto kamera terpasang menghadap pintu air | Bukti sudut pandang |
 | Video demonstrasi ujung-ke-ujung | Bukti sistem hidup |
 | Video eksperimen miniatur E1 | Bukti validasi fisika |
 | Grafik kurva pelatihan | Datanya ada di `runs/*/tb/`, gambarnya belum diekspor |
 | Contoh keluaran segmentasi pada **citra sungai** | Sekarang hanya ada contoh benda rumah tangga |
+
+**Taruh semuanya di `docs/gambar/`** dengan nama yang menjelaskan isinya
+(`operator-banner-bahaya.png`, `esp32-rangkaian.jpg`, `pi-kamera-terpasang.jpg`),
+lalu rujuk dari tabel di atas. Nama berkas yang deskriptif sudah separuh
+keterangan gambar.
 
 Catatan: kurva pelatihan **bukan** `[BELUM]` dalam arti datanya hilang — event
 TensorBoard ada di `runs/*/tb/` dan metrik per-epoch ada di `runs/*/metrics.csv`.
@@ -193,7 +228,7 @@ Lalu ambil:
    keadaan "Belum ada pengukuran"; ini justru layak dipamerkan
 3. `http://localhost:8000/demo` — kamera langsung
 4. Penyunting poligon saat titik sedang ditarik
-5. Kartu fisika, diperbesar, dengan penanda `UNCALIBRATED` terlihat jelas
+5. Kartu Penumpukan, diperbesar, dengan bilah dan ambang terlihat jelas
 
 ### B. Foto perangkat keras (~15 menit)
 

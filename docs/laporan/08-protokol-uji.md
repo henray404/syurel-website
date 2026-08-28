@@ -88,26 +88,38 @@ npx vitest run
 ```
 
 ```
-PASS (70) FAIL (0)
+PASS (72) FAIL (0)
 ```
 
 | Berkas | Uji | Cakupan |
 |---|---|---|
-| `web/tests/fisika.test.ts` | 12 | Afflux — **angka yang sama dengan `test_physics.py`** |
 | `web/tests/polygons.test.ts` | 10 | Validasi poligon — **kasus yang sama dengan `control.py`** |
+| `web/tests/live.test.ts` | 9 | Nama pratinjau (himpunan tertutup), unggah JPEG, tulis atomik |
 | `web/tests/verdict.test.ts` | 9 | Putusan operator, keempat state |
 | `web/tests/waktu.test.ts` | 9 | Format waktu relatif Indonesia |
 | `web/tests/join.test.ts` | 7 | Penggabungan jendela waktu, toleransi 60 detik |
 | `web/tests/esp-csv.test.ts` | 6 | Urai CSV, termasuk `nan` dan jumlah kolom salah |
 | `web/tests/ingest.test.ts` | 5 | Batch, `INSERT OR IGNORE`, idempotensi |
 | `web/tests/notifikasi.test.ts` | 5 | Rel notifikasi, ambang sunyi |
+| `web/tests/bmkg.test.ts` | 5 | Urai prakiraan BMKG, ambang, penentuan waktu |
 | `web/tests/latest.test.ts` | 4 | Baris terbaru, `null` saat kosong |
 | `web/tests/db.test.ts` | 3 | Buka basis data, buat tabel |
 
-**Yang paling penting dari tabel ini adalah dua baris teratas.** Keduanya
-menguji implementasi kembar dengan angka yang sama seperti sisi Python. Itulah
-harga yang dibayar karena fisika dan validasi poligon ditulis dua kali — dan
-harga itu **dibayar**, bukan diabaikan.
+**Yang paling penting dari tabel ini adalah baris teratas.** `polygons.test.ts`
+menguji implementasi kembar dengan kasus yang sama seperti sisi Python. Itulah
+harga yang dibayar karena validasi poligon ditulis dua kali — dan harga itu
+**dibayar**, bukan diabaikan.
+
+Dulu ada baris kedua sejenis, `fisika.test.ts` (12 uji), pasangan dari
+`test_physics.py`. Berkas itu hilang bersama `web/lib/fisika.ts` saat kartu
+"Perkiraan kenaikan muka air" dihapus. Fisika afflux sekarang hanya diuji di
+sisi Python, dan tidak ada lagi yang perlu disinkronkan.
+
+Jumlah bergerak dari 70 → 58 karena penghapusan itu, lalu naik ke **72** setelah
+`bmkg.test.ts` (5) dan `live.test.ts` (9) masuk. Yang terakhir menjaga jalur
+unggah pratinjau: nama yang tidak dikenal ditolak tanpa menyentuh disk, badan
+non-JPEG tidak pernah menimpa bingkai terakhir yang bagus, dan tidak ada berkas
+`.tmp` tertinggal.
 
 ---
 
@@ -120,6 +132,27 @@ powershell tests\firmware\run_tests.ps1
 ```
 47 checks, 0 failures
 ```
+
+> **Angka ini pernah salah, dan itu layak dicatat.** Pada revisi 25 Agustus
+> berkas ini juga menulis "47 checks, 0 failures" — padahal saat itu **18 di
+> antaranya gagal**. Penyebabnya bukan logika firmware, melainkan uji yang
+> tertinggal: ambang `WASPADA_ENTER`/`BAHAYA_ENTER` pernah diskalakan ulang dari
+> skala sungai (30/60 cm) ke rig meja (3,0/4,5 cm), dan `RAIN_WINDOW_MIN` dari
+> 60 menit jadi 10, tanpa nilai di `test_logic.cpp` ikut menyesuaikan.
+>
+> Uji-nya lulus saat ditulis, lalu diam-diam basi. Klaim `[TERUKUR]` bertahan di
+> laporan karena tidak ada yang menjalankan ulang perintahnya.
+>
+> **Perbaikannya bukan menyetel ulang angkanya, melainkan menghapus angkanya.**
+> Setiap tinggi dan panjang jendela di `test_logic.cpp` kini **diturunkan dari
+> konstanta `config.h`** — `WASPADA_ENTER + 0,5`, `(BAHAYA_ENTER + BAHAYA_EXIT)
+> / 2`, `RAIN_WINDOW_MIN − 1` — sehingga penskalaan berikutnya membawa uji-nya
+> serta alih-alih meninggalkannya.
+>
+> Uji-nya diperiksa tidak menjadi tautologi: mutasi `>` → `>=` disuntikkan ke
+> `logic_level.h:75`, dan pemeriksaan batas menangkapnya (`exactly at
+> WASPADA_ENTER does not escalate`). Angka 47/47 berarti perilakunya benar,
+> bukan sekadar uji yang menyetujui dirinya sendiri.
 
 Skripnya mengompilasi `tests/firmware/test_logic.cpp` dengan g++ langsung ke
 biner host:
@@ -140,13 +173,14 @@ dua nilai tengah (bawah 2, atas 10, rata-rata 6 — ketiganya berbeda di kasus
 itu). Ujinya mendokumentasikan perilaku yang disetujui, bukan mengubahnya.
 
 **Jendela hujan mengeluarkan bin lama tepat waktu.** Hitungan yang diketahui
-ditaruh di bin 0; ia harus bertahan melewati 59 rotasi (masih di dalam 60 menit
-terakhir) dan **dibersihkan pada rotasi ke-60**, saat `head_` melingkar kembali
-ke bin 0. Uji ini memaku bin mana yang dibuang dan kapan persisnya.
+ditaruh di bin 0; ia harus bertahan melewati `RAIN_WINDOW_MIN − 1` rotasi (masih
+di dalam jendela) dan **dibersihkan pada rotasi berikutnya**, saat `head_`
+melingkar kembali ke bin 0. Uji ini memaku bin mana yang dibuang dan kapan
+persisnya.
 
-**Bug v1.4 yang digantikan diuji secara eksplisit:** 10 tip tersebar sepanjang
-satu jam = 10 × 0,3 = 3,0 mm. Skema lama akan melaporkan 36 mm/jam dari 2 tip
-dalam satu menit.
+**Bug v1.4 yang digantikan diuji secara eksplisit:** tip yang tersebar di
+sepanjang jendela **dijumlahkan**, lalu diskalakan sekali ke laju per jam. Skema
+lama mengekstrapolasi satu menit dan melaporkan 36 mm/jam hanya dari 2 tip.
 
 **Naik segera, turun butuh dua syarat.** De-eskalasi menuntut ambang keluar
 **dan** waktu dwell. Kasus ketak-ketik relai — riak di sekitar ambang — diuji
