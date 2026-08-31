@@ -6,6 +6,7 @@
 #include "logic_rain.h"
 #include "logic_level.h"
 #include "logic_csv.h"
+#include "logic_height.h"
 
 static int g_failures = 0;
 static int g_checks = 0;
@@ -311,11 +312,77 @@ static void test_integration() {
   CHECK(lvl == BAHAYA, "RainWindow's mmPerHour fed into LevelFsm::update yields BAHAYA from rain alone");
 }
 
+
+static void test_height() {
+  // Distances are derived from the config constants, never written as literals:
+  // JARAK_DASAR changes every time the sensor is remounted, and a suite that
+  // hardcodes one mount goes red on a legitimate remount instead of on a bug.
+  const float kWater = 3.0f;                                  // a plausible depth
+  const float kNear  = JARAK_DASAR - kWater;                  // that much water
+  const float kSlack = JARAK_DASAR + ULTRA_RANGE_SLACK_CM;    // last accepted
+  CHECK(kNear > SENSOR_BLIND_CM, "test geometry: a 3 cm depth is outside the blind zone");
+
+  // Speed-of-sound decode. These two numbers are quoted in config.h comments as
+  // justification for SENSOR_BLIND_CM and ULTRA_ECHO_TIMEOUT_US; if the constant
+  // ever changes, the comments become lies and this fails first.
+  CHECK_NEAR(usToCm(1294), 22.0f, 0.1f, "ring-down 1294 us decodes to ~22 cm");
+  CHECK_NEAR(usToCm(ULTRA_ECHO_TIMEOUT_US), 510.0f, 1.0f, "30 ms timeout is ~5 m of range");
+  CHECK_NEAR(usToCm(0), 0.0f, 1e-6, "zero width is zero distance");
+
+  // No echo at all is not a reading, and must never become a number.
+  Ketinggian t = heightFrom(NULL, 0);
+  CHECK(!t.valid && strcmp(t.reason, "timeout") == 0, "n=0 is timeout");
+  CHECK(std::isnan(t.tinggi_cm), "timeout height is NAN, not 0");
+
+  // Normal water.
+  float mid[5] = {kNear, kNear, kNear - 0.1f, kNear + 0.1f, kNear};
+  Ketinggian w = heightFrom(mid, 5);
+  CHECK(w.valid && strcmp(w.reason, "") == 0, "a mid-range distance is a valid reading");
+  CHECK_NEAR(w.tinggi_cm, kWater, 0.05f, "height is JARAK_DASAR minus the distance");
+
+  // The blind-zone artefact. The module emits its own ring-down as an echo when
+  // it hears nothing; at 22 cm that decoded to real water on a dry rig. This is
+  // a property of the module, not of the mount, so 22.0 is a literal on purpose.
+  CHECK(SENSOR_BLIND_CM > 22.0f, "the blind gate is above the 22 cm ring-down artefact");
+  float ring[5] = {22.0f, 22.0f, 22.0f, 22.0f, 22.0f};
+  Ketinggian r = heightFrom(ring, 5);
+  CHECK(!r.valid && strcmp(r.reason, "too_close") == 0, "22 cm ring-down is rejected");
+  CHECK(std::isnan(r.tinggi_cm), "too_close height is NAN, not a depth");
+
+  // One wild ping must not move the verdict -- that is why this is a median.
+  float spike[5] = {kNear, kNear, SENSOR_BLIND_CM - 20.0f, kNear + 0.1f, kNear - 0.1f};
+  Ketinggian sp = heightFrom(spike, 5);
+  CHECK(sp.valid, "a single wild outlier does not invalidate the reading");
+  CHECK_NEAR(sp.tinggi_cm, kWater, 0.15f, "median ignores the outlier");
+
+  // Over-range. This is the fix: at +20 cm slack a far reading clamped to 0 cm
+  // of water with valid=1, and 0 reads as a dry bed -- the safest-looking number
+  // the system can print, from an echo that is plainly wrong.
+  float far[3] = {kSlack + 10.0f, kSlack + 10.0f, kSlack + 10.0f};
+  Ketinggian f = heightFrom(far, 3);
+  CHECK(!f.valid && strcmp(f.reason, "out_of_range") == 0, "well past the bed is rejected");
+  CHECK(std::isnan(f.tinggi_cm), "out_of_range height is NAN, never 0");
+
+  // Just past the bed is noise, not an error: an empty rig reading a little long
+  // is still an empty rig, and clamping it to 0 is right.
+  float bed[3] = {kSlack - 0.5f, kSlack - 0.5f, kSlack - 0.5f};
+  Ketinggian b = heightFrom(bed, 3);
+  CHECK(b.valid && strcmp(b.reason, "") == 0, "inside the slack is still a reading");
+  CHECK_NEAR(b.tinggi_cm, 0.0f, 1e-6, "empty rig clamps to 0 cm, valid");
+
+  // The gates must bracket the alert thresholds, or the sensor goes blind at a
+  // level the FSM still has opinions about. This is what catches a remount that
+  // puts the sensor too low to ever see BAHAYA.
+  CHECK(JARAK_DASAR - SENSOR_BLIND_CM > BAHAYA_ENTER,
+        "BAHAYA is reachable before the blind zone swallows the reading");
+}
+
 int main() {
   test_median();
   test_rain_window();
   test_level_fsm();
   test_csv();
+  test_height();
   test_integration();
   printf("\n%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
