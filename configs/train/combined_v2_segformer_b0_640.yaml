@@ -1,0 +1,134 @@
+# RIPTSeg + IWHR + RiSID, SegFormer-B0, 640 px, 3-class (clump folded into debris).
+#
+#   python -m train.train --config configs/train/combined_v2_segformer_b0_640.yaml
+#
+# Successor to combined_segformer_b0_640.yaml. That run scores val iou_debris
+# 0.7313, and on the test split iou_debris 0.4819 with precision 0.662 and recall
+# 0.640. This file changes three things, each aimed at a defect that was MEASURED
+# rather than guessed. val and test are byte-identical to the previous run, so the
+# comparison is honest.
+#
+#   1. LABELS. Two of the three datasets carry a majority-class label that is
+#      simply wrong. Both are now sent to `ignore` at load time:
+#
+#        iwhr.water       Not annotation. SAM was seeded from a ring around each
+#                         debris box, so whatever surrounds the litter became
+#                         `water`. In a 16-image random sample, 10 had `water`
+#                         painted over dry dirt, rock or dead leaves. IWHR was 93%
+#                         of the training pool, which is why the old model paints
+#                         the SKY as water on the test location.
+#        risid.background risid.yaml never set `unlabelled: ignore`, so the
+#                         converter's `background` default claimed every
+#                         unannotated pixel -- the whole river surface. 99.86% of
+#                         RiSID pixels are class 0.
+#
+#      What survives is the trustworthy half of each: IWHR's debris boxes plus its
+#      genuine land background, and RiSID's debris polygons. Water is now
+#      supervised ONLY by RIPTSeg, the one source that ever had real water masks.
+#
+#   2. DATA. RiSID (7356 images, 279 video groups, 7 Japanese rivers) was converted
+#      and then sat unused -- it appears in no split file. With its background
+#      defect neutralised it is the largest supply of real debris polygons in the
+#      project. It joins TRAIN ONLY, via train_v2.txt.
+#
+#   3. LOSS. Tversky with beta > alpha in place of Dice. The old model's errors are
+#      lopsided -- 30.0% of true debris pixels are predicted `water`, against a
+#      precision of 0.662 -- so there is recall to buy and precision to spend. See
+#      the comment on TverskyLoss in src/train/losses.py.
+#
+# NOT changed, deliberately: augmentation, optimizer, scheduler, architecture,
+# resolution, and the val/test split files. Three levers already move here.
+classes: configs/classes_collapsed.yaml
+
+name: combined_v2_segformer_b0_640
+seed: 0
+device: null
+deterministic: false
+
+model:
+  name: segformer_b0
+  args:
+    pretrained: true
+
+data:
+  size: 640
+
+  # 16, against 8 in the previous run. That run was sized for an 8 GB laptop GPU;
+  # this one is sized for a 24 GB cloud card. Purely a wall-clock decision.
+  batch_size: 16
+  num_workers: 8
+
+  # TRAIN list only -- `val` and `test` stay pinned to the files data.splits wrote.
+  # Adding training data must never move the yardstick.
+  train_split: train_v2
+
+  # See lever 1. Load-time LUT: the PNGs on disk are untouched, and deleting this
+  # block restores the old behaviour exactly.
+  relabel:
+    iwhr:
+      water: ignore
+    risid:
+      background: ignore
+  # NOT relabelled: iwhr.clump. src/data/clump.py promotes large connected
+  # components OF DEBRIS -- it never touches water -- so IWHR's clump pixels are
+  # real trash from the annotated boxes, and they are where nearly all of that
+  # dataset's debris signal lives: clump is 10.47% of IWHR pixels against 0.47%
+  # for debris. Sending clump to ignore would discard ~96% of what IWHR is here
+  # to teach. It stays, and classes_collapsed.yaml folds it into debris.
+
+  # 300, down from 400. The pool is 200 RIPTSeg / 2510 IWHR / 7356 RiSID, and
+  # RIPTSeg is now the ONLY source of water supervision, so its share of each epoch
+  # matters more than it did:
+  #     riptseg  min(200,  300 * 1.0) = 200   (36%)
+  #     iwhr     min(2510, 300 * 0.7) = 210   (37%)
+  #     risid    min(7356, 300 * 0.5) = 150   (27%)
+  # 560 samples/epoch at batch 16 -> 35 steps/epoch.
+  per_dataset_cap: 300
+
+loss:
+  # Was dice+focal. alpha 0.3 / beta 0.7 makes a missed debris pixel cost about
+  # 2.3x a spurious one; gamma 1.33 is the Focal Tversky exponent, which keeps
+  # gradient on the classes still scoring badly instead of polishing water.
+  name: focal_tversky+focal
+  weights: [0.5, 0.5]
+  focal_tversky:
+    alpha: 0.3
+    beta: 0.7
+    gamma: 1.33
+    smooth: 1.0
+  focal:
+    gamma: 2.0
+
+optimizer:
+  name: adamw
+  lr: 0.0006
+  weight_decay: 0.0001
+
+scheduler:
+  name: cosine
+
+train:
+  # 50, not the 120 the earlier configs allow. Measured on an L4: 35 steps plus a
+  # full val pass is 60-95 s, so 50 epochs is ~1 h of rented GPU. The ceiling is
+  # unlikely to bind anyway -- combined_segformer_b0_640 ran 40 epochs at
+  # patience 30, so its best checkpoint was epoch ~10.
+  epochs: 50
+  amp: true
+  grad_clip: 1.0
+  select_metric: iou_debris
+  early_stopping_patience: 15
+
+# Byte-identical to combined_segformer_b0_640.yaml. Changing augmentation too would
+# make the three levers above uninterpretable.
+aug:
+  affine: 0.7
+  brightness_contrast: 0.9
+  hsv: 0.9
+  gamma: 0.5
+  clahe: 0.3
+  sun_flare: 0.25
+  tone_curve: 0.3
+  rain: 0.15
+  fog: 0.15
+  low_light: 0.2
+  motion_blur: 0.15

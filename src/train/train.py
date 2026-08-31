@@ -176,6 +176,17 @@ def train(config_path: Path, resume: bool = False, smoke: bool = False) -> dict[
         )
     patience = int(cfg["train"].get("early_stopping_patience", 12))
 
+    # Warm start from ANOTHER run's weights. Distinct from --resume, which
+    # continues this run from its own last.pt and restores the optimizer too.
+    # Fine-tuning onto a new domain wants the weights and a fresh optimizer: the
+    # old momentum and LR schedule belong to the old data.
+    init_from = cfg["model"].get("init_from")
+    if init_from:
+        src = REPO_ROOT / str(init_from)
+        state = torch.load(src, map_location=device, weights_only=False)
+        model.load_state_dict(state.get("model", state))
+        print(f"init_from {init_from} (epoch {state.get('epoch')}, score {state.get('score')})")
+
     start_epoch, best_score, bad_epochs = 0, -float("inf"), 0
     ckpt_path, best_path = run_dir / "last.pt", run_dir / "best.pt"
     if resume and ckpt_path.exists():

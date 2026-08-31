@@ -62,6 +62,65 @@ class DiceLoss(nn.Module):
         return 1.0 - dice[present].mean()
 
 
+class TverskyLoss(nn.Module):
+    """Dice with the false-positive and false-negative terms weighted separately.
+
+    Dice is the alpha=beta=0.5 special case: it penalises a false positive and a
+    false negative equally. That is the wrong trade here. A missed debris pixel
+    understates blockage and the operator sees a clean river during a flood; a
+    spurious one costs a false alarm. Raising beta above alpha makes false
+    negatives more expensive, buying recall at some precision.
+
+    MEASURED on runs/combined_segformer_b0_640 against the test split: debris
+    recall 0.640 with 30.0% of true debris pixels predicted as `water`, against
+    precision 0.662. The errors are lopsided towards missing debris, so there is
+    recall to buy and precision to spend.
+
+    alpha + beta = 1 keeps the loss on the same scale as Dice (Salehi et al. 2017).
+    gamma > 1 makes this Focal Tversky (Abraham & Khan 2019), concentrating
+    gradient on classes still scoring badly -- here, the small scattered debris
+    that this model loses first.
+    """
+
+    def __init__(
+        self,
+        ignore_index: int = 255,
+        smooth: float = 1.0,
+        alpha: float = 0.3,
+        beta: float = 0.7,
+        gamma: float = 1.0,
+    ) -> None:
+        super().__init__()
+        self.ignore_index = ignore_index
+        self.smooth = smooth
+        self.alpha, self.beta, self.gamma = alpha, beta, gamma
+
+    def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        n_classes = logits.shape[1]
+        probs = logits.softmax(dim=1)
+
+        valid = _valid_mask(target, self.ignore_index)
+        safe = target.clone()
+        safe[~valid] = 0  # any in-range value; masked out below
+        onehot = F.one_hot(safe, n_classes).permute(0, 3, 1, 2).to(probs.dtype)
+
+        v = valid.unsqueeze(1).to(probs.dtype)
+        probs, onehot = probs * v, onehot * v
+
+        dims = (0, 2, 3)
+        tp = (probs * onehot).sum(dims)
+        fp = (probs * (1 - onehot)).sum(dims)
+        fn = ((1 - probs) * onehot).sum(dims)
+        tv = (tp + self.smooth) / (tp + self.alpha * fp + self.beta * fn + self.smooth)
+
+        # Same rule as DiceLoss: a class absent from the batch would otherwise score
+        # a free 1.0 and hide a real failure on the classes that matter.
+        present = onehot.sum(dims) > 0
+        if not bool(present.any()):
+            return logits.sum() * 0.0
+        return ((1.0 - tv[present]) ** self.gamma).mean()
+
+
 class FocalLoss(nn.Module):
     """Multi-class focal loss (Lin et al. 2017)."""
 
@@ -108,6 +167,17 @@ class ComboLoss(nn.Module):
 def _one(name: str, cfg: dict[str, Any], n_classes: int, ignore_index: int) -> nn.Module:
     if name == "dice":
         return DiceLoss(ignore_index=ignore_index, smooth=float(cfg.get("smooth", 1.0)))
+    if name in ("tversky", "focal_tversky"):
+        # focal_tversky is the same loss with gamma defaulting above 1 rather than
+        # at it; both read every knob from the config, so either name can express
+        # either behaviour and the name only sets the default.
+        return TverskyLoss(
+            ignore_index=ignore_index,
+            smooth=float(cfg.get("smooth", 1.0)),
+            alpha=float(cfg.get("alpha", 0.3)),
+            beta=float(cfg.get("beta", 0.7)),
+            gamma=float(cfg.get("gamma", 1.33 if name == "focal_tversky" else 1.0)),
+        )
     if name == "focal":
         return FocalLoss(
             gamma=float(cfg.get("gamma", 2.0)), alpha=cfg.get("alpha"), ignore_index=ignore_index
@@ -117,7 +187,10 @@ def _one(name: str, cfg: dict[str, Any], n_classes: int, ignore_index: int) -> n
         return nn.CrossEntropyLoss(
             weight=torch.tensor(w, dtype=torch.float32) if w else None, ignore_index=ignore_index
         )
-    raise ValueError(f"unknown loss {name!r}; known: dice, focal, ce (combine with '+')")
+    raise ValueError(
+        f"unknown loss {name!r}; known: dice, tversky, focal_tversky, focal, ce "
+        "(combine with '+')"
+    )
 
 
 def build_loss(cfg: dict[str, Any], n_classes: int, ignore_index: int = 255) -> nn.Module:
@@ -164,11 +237,26 @@ def demo() -> None:
     all_water = torch.zeros((B, C, H, W))
     all_water[:, 1] = 20.0
 
-    for name in ("dice", "focal", "dice+focal"):
+    for name in ("dice", "focal", "dice+focal", "tversky", "focal_tversky+focal"):
         loss = build_loss({"name": name}, C)
         good, bad = float(loss(perfect, target)), float(loss(all_water, target))
         assert good < bad, f"{name}: perfect {good} should beat all-water {bad}"
         assert good >= 0.0
+
+    # The whole point of Tversky here: beta > alpha must make a MISS cost more than
+    # a FALSE ALARM of the same size. Dice, being symmetric, must score them equal.
+    # If this assert ever flips, the loss has stopped buying recall.
+    miss = all_water.clone()  # predicts water over the debris band -> all FN
+    alarm = torch.zeros((B, C, H, W))
+    alarm[:, 1] = 20.0
+    alarm[:, 2, :4, :] = 40.0  # debris band (2 rows) plus 2 spurious rows -> FP
+    recall_biased = TverskyLoss(alpha=0.3, beta=0.7)
+    assert float(recall_biased(miss, target)) > float(recall_biased(alarm, target))
+    # alpha = beta = 0.5 IS Dice, but only once `smooth` is out of the way: Dice
+    # writes the ratio doubled (2TP / 2TP+FP+FN) and Tversky undoubled, so the same
+    # smoothing constant lands at a different scale in each.
+    symmetric = TverskyLoss(alpha=0.5, beta=0.5, smooth=0.0)
+    assert abs(float(symmetric(miss, target)) - float(DiceLoss(smooth=0.0)(miss, target))) < 1e-4
 
     # ignore_index must be excluded, not silently treated as a class.
     ign = target.clone()
