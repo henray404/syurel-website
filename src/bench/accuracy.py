@@ -177,7 +177,11 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    ap.add_argument("--split", default="test", choices=("train", "val", "test"))
+    # Any split file under data/splits/, not just the three the splitter writes.
+    # Held-out sets arrive later than the splitter does -- opsi_test.txt is the
+    # 29 usable in-domain frames from the target floodgate -- and a hardcoded
+    # choices= turned "evaluate on the real site" into an argparse error.
+    ap.add_argument("--split", default="test")
     ap.add_argument("--device", default=None)
     ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--workers", type=int, default=0)

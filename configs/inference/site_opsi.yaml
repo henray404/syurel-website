@@ -1,0 +1,92 @@
+# LOKASI SASARAN — 29 foto berlabel dari bendung gerak, 16 Agustus 2026.
+#
+#   python -m inference.run --config configs/inference/site_opsi.yaml \
+#       --source "<folder>/%04d.jpg"
+#
+# Dipakai untuk satu hal: menjalankan rantai penuh foto -> model -> basis data ->
+# dasbor di atas citra yang punya label manusia, sehingga persentase yang tampil
+# di layar bisa diadu dengan persentase dari anotasi. Bukan konfigurasi operasional.
+#
+# `site: opsi` memisahkan keluarannya dari webcam dan video. Memakai site lain
+# akan mencampur baris uji ini ke dalam deret waktu adegan yang berbeda.
+
+site: opsi
+device: null
+input_size: 640
+
+models:
+  trash:
+    # SegFormer-B0. "lama" in the run name is the old DATA recipe, not LR-ASPP --
+    # the checkpoint's state dict is encoder.*/decoder.*, which is SegFormer.
+    name: segformer_b0
+    # DIPILIH DENGAN MENGUKUR DI DOMAIN INI, bukan dengan peringkat validasi.
+    # runs/combined_v3_segformer_b0_640 menang di val (iou_debris 0,7413) dan
+    # kalah telak di sini: iou_water 0,0017 dan galat coverage 95,6 poin persen,
+    # karena v3 mencabut supervisi air dari semua sumber kecuali RIPTSeg. Fold ini
+    # skor val-nya biasa saja (0,6059) tapi di 29 foto lokasi memberi iou_debris
+    # 0,2020, presisi 0,649, dan galat coverage 0,63 pp -- yang terkecil.
+    checkpoint: runs/cv_lama_fold6/best.pt
+    args: {}
+  water: null
+
+# Setiap frame. Ini urutan gambar diam, bukan video: tidak ada yang perlu dilewati.
+sampling:
+  trash_interval_s: 0.0
+  water_interval_s: 0.0
+
+# SELURUH FRAME, sengaja. Perbandingan dengan label harus memakai penyebut yang
+# sama persis, dan label dibuat di atas frame utuh. Memotong ROI di sini akan
+# membuat `coverage` mengukur bidang yang berbeda dari yang diukur anotator.
+roi:
+  - [0, 0]
+  - [1023, 0]
+  - [1023, 575]
+  - [0, 575]
+
+# PLACEHOLDER, dan harus dibaca begitu. Poligon pintu air yang sebenarnya digambar
+# dari survei lokasi; survei itu belum ada (configs/site_geometry.json masih
+# UNCALIBRATED). Isinya frame utuh supaya `accumulation_frac` punya penyebut yang
+# terdefinisi, BUKAN supaya angkanya berarti. Yang dibandingkan dengan label
+# adalah kolom `coverage`; `accumulation_frac` dari file ini tidak boleh dikutip
+# sebagai bukti penyumbatan apa pun.
+structure:
+  - [0, 0]
+  - [1023, 0]
+  - [1023, 575]
+  - [0, 575]
+
+# 1, bukan 10. Penghalusan bergulir dirancang untuk deret video yang berurutan;
+# 29 foto ini adegan-adegan terpisah, jadi median antar-frame akan mencampur
+# pengukuran yang tidak berhubungan dan setiap baris tidak lagi sebanding dengan
+# labelnya sendiri.
+smoothing:
+  window: 1
+  method: median
+
+blockage:
+  area_threshold: 0.18
+  growth_threshold_per_min: 0.03
+  growth_window_s: 60.0
+  consecutive: 3
+
+velocity:
+  scale: 0.5
+  min_magnitude_px: 0.3
+  smooth_window: 15
+
+cross_section_width: 1.0
+
+homography:
+  enabled: false
+
+output_dir: out
+output:
+  csv: true
+  sqlite: true
+
+preview:
+  enabled: true
+  interval_s: 0.1
+  max_width: 960
+  jpeg_quality: 70
+  draw_polygons: true

@@ -1,0 +1,100 @@
+# Fine-tune ke lokasi sasaran — fold 2 dari 2 blok waktu.
+#
+#   python -m train.train --config configs/train/opsi_ft2.yaml
+#
+# MENGAPA FINE-TUNE. Diukur pada 29 foto berlabel dari bendung gerak, checkpoint
+# terbaik proyek ini (runs/cv_lama_fold6) hanya mencapai iou_debris 0,2020 dengan
+# recall 0,227 -- 77% piksel sampah terlewat -- dan korelasi antara coverage yang
+# diprediksi dan coverage dari label adalah 0,035, yang berarti angka per-foto
+# tidak mengikuti kenyataan sama sekali. Model itu tidak pernah melihat satu pun
+# citra sungai ini saat dilatih.
+#
+# MENGAPA BLOK WAKTU, BUKAN ACAK. Ke-29 frame berasal dari SATU video. Frame 0004
+# dan 0005 adalah gambar yang nyaris identik; membaginya secara acak menaruh
+# kembarannya di sisi latih dan sisi uji, dan angka yang keluar akan indah serta
+# tidak berarti apa-apa. Pembagian di sini mengikuti waktu:
+#
+#     blok A  idx <= 86    12 frame   bidikan lebar: pintu air, tanggul, rumah
+#     blok B  206..582      9 frame   permukaan air, sebagian besar bersampah
+#     blok C  586..663      8 frame   permukaan air dari dekat
+#
+#   fold 1 (berkas ini): latih A+C (20), uji B (9)
+#   fold 2 (opsi_ft2)  : latih A+B (21), uji C (8)
+#
+# Dua fold, bukan satu, karena dengan n sekecil ini satu angka tunggal tidak bisa
+# dibedakan dari keberuntungan. Yang dilaporkan adalah rerata dan rentangnya.
+#
+# MENGAPA TANPA EARLY STOPPING, DAN MENGAPA HASILNYA DIBACA DARI last.pt.
+# 29 frame tidak cukup untuk dibagi tiga (latih/val/uji). Val di sini SAMA dengan
+# blok uji, jadi memilih checkpoint terbaik berdasarkan skor val berarti memilih
+# dengan mengintip jawaban, dan angka yang dilaporkan akan optimistis. Karena itu
+# epoch dipatok, patience dibuat lebih besar dari jumlah epoch sehingga tidak
+# pernah menggigit, dan evaluasi jujurnya memakai last.pt -- bukan best.pt.
+classes: configs/classes_collapsed.yaml
+
+name: opsi_ft2
+seed: 0
+device: null
+deterministic: false
+
+model:
+  name: segformer_b0
+  # Berangkat dari bobot yang menang di domain ini, bukan dari ImageNet. Dengan
+  # 20 frame latih, melatih dari awal hanya akan menghafal.
+  init_from: runs/cv_lama_fold6/best.pt
+  args:
+    pretrained: false
+
+data:
+  size: 640
+  # 4, bukan 16. Satu epoch cuma 20 gambar; batch 16 berarti satu setengah
+  # langkah per epoch dan penjadwal cosine tidak sempat bekerja.
+  batch_size: 4
+  num_workers: 4
+  train_split: opsi_ft2_train
+  val_split: opsi_ft2_val
+  # Tidak relevan di sini: hanya ada satu dataset dalam kolam.
+  per_dataset_cap: 1000
+
+loss:
+  name: dice+focal
+  weights: [0.5, 0.5]
+  dice:
+    smooth: 1.0
+  focal:
+    gamma: 2.0
+
+optimizer:
+  name: adamw
+  # 6e-5, sepersepuluh dari resep latihan penuh. Fine-tune di 20 gambar dengan
+  # lr penuh akan menghapus apa yang sudah dipelajari model dari 10.000 gambar
+  # sumber dalam beberapa langkah saja.
+  lr: 0.00006
+  weight_decay: 0.0001
+
+scheduler:
+  name: cosine
+
+train:
+  epochs: 40
+  amp: true
+  grad_clip: 1.0
+  select_metric: iou_debris
+  # Lebih besar dari epochs: sengaja tidak pernah aktif. Lihat catatan di atas.
+  early_stopping_patience: 999
+
+# Identik dengan resep latihan penuh, dan justru lebih penting di sini: 20 gambar
+# dari satu adegan dan satu pencahayaan adalah undangan untuk menghafal. Augmentasi
+# ini yang membuat model melihat sungai itu dalam kondisi yang belum sempat difoto.
+aug:
+  affine: 0.7
+  brightness_contrast: 0.9
+  hsv: 0.9
+  gamma: 0.5
+  clahe: 0.3
+  sun_flare: 0.25
+  tone_curve: 0.3
+  rain: 0.15
+  fog: 0.15
+  low_light: 0.2
+  motion_blur: 0.15
