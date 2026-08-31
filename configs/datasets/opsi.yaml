@@ -11,27 +11,31 @@
 dataset: opsi
 adapter: coco_polygon
 
+# The version-1 export put all 33 frames in `test`, not `train`: they are a
+# held-out in-domain evaluation set, not training data.
 paths:
-  images: train
-  annotations: train/_annotations.coco.json
+  images: test
+  annotations: test/_annotations.coco.json
 
-# VERIFY against the real _annotations.coco.json after the first download --
-# category names depend on what was typed into Roboflow's label list.
-# `unmapped: error` will list anything missed here.
+# VERIFIED against the real _annotations.coco.json (2026-08-30). The labels were
+# typed in Indonesian, and Roboflow adds the project name itself as category 0
+# with no annotations attached -- it still has to be mapped or `unmapped: error`
+# trips on it.
 label_map:
-  water: water
-  debris: debris
-  clump: clump
+  air: water
+  sampah: debris
+  OPSI: background
 unmapped: error
 
 recursive_images: false
 group_from: flat
 water_source: labelled
 
+# Source label names, not target ones. Later wins: rubbish sitting on water is
+# debris, not water.
 paint_order:
-  - water
-  - debris
-  - clump
+  - air
+  - sampah
 
 clump:
   enabled: true

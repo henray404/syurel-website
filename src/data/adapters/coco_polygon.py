@@ -67,7 +67,19 @@ def _decode_rle(seg: dict[str, Any], height: int, width: int) -> np.ndarray:
             "Install it with `uv add pycocotools` and re-run. "
             "(Neither RIPTSeg nor RiSID needed it at survey time.)"
         ) from exc
-    rle = mask_utils.frPyObjects(seg, height, width)
+    # Two RLE shapes reach us, and frPyObjects only handles one of them.
+    # `counts` as a list of ints is uncompressed RLE, which frPyObjects converts.
+    # `counts` as a string is ALREADY compressed RLE -- Roboflow's brush/SAM
+    # labels export that way -- and frPyObjects then runs int() over the encoded
+    # bytes and raises `invalid literal for int() with base 10`. Compressed RLE
+    # goes straight to decode; it only needs its counts as bytes.
+    counts = seg.get("counts")
+    if isinstance(counts, str):
+        rle = {"counts": counts.encode("ascii"), "size": seg["size"]}
+    elif isinstance(counts, bytes):
+        rle = seg
+    else:
+        rle = mask_utils.frPyObjects(seg, height, width)
     return mask_utils.decode(rle).astype(np.uint8)
 
 

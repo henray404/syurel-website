@@ -73,9 +73,12 @@ DIRECT: dict[str, tuple[Path, list[tuple[str, str]], str]] = {
 # name -> (dest dir, workspace slug, project slug, version, export format, note)
 ROBOFLOW: dict[str, tuple[Path, str, str, int, str, str]] = {
     "opsi_roboflow": (
-        RAW_ROOT / "opsi_roboflow",
+        # Must be RAW_ROOT / "opsi": data.convert derives the raw directory from
+        # the dataset name in configs/datasets/opsi.yaml, so a folder called
+        # anything else downloads fine and then converts to nothing.
+        RAW_ROOT / "opsi",
         "hengray",
-        "OPSI",
+        "opsi-rooew",
         1,
         "coco-segmentation",
         "Own Roboflow project. Requires ROBOFLOW_API_KEY env var (copy .env.example "

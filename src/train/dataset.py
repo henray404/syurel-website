@@ -33,6 +33,9 @@ from data.splits import SPLITS_DIR
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
+#: Mask value written into letterbox padding. Must equal the schema ignore_index.
+PAD_IGNORE = 255
+
 
 @dataclass
 class Item:
@@ -74,6 +77,39 @@ def dataset_weights() -> dict[str, float]:
     return out
 
 
+def relabel_lut(schema: Schema, mapping: dict[str, str]) -> np.ndarray:
+    """256-entry LUT sending named classes to another class or to `ignore`.
+
+    WHY THIS EXISTS. Two of the three converted datasets carry a class that is
+    demonstrably wrong, and in both cases the wrong pixels are the *majority* of
+    the frame, so they dominate training:
+
+      iwhr.water      -- not annotation. src/data/water_pseudolabel.py seeds SAM
+                         from a ring just outside each debris box, so whatever
+                         surrounds the trash becomes `water`. IWHR contains many
+                         close-ups of litter lying on dirt, rock and dead leaves;
+                         in a 16-image random sample, 10 had `water` painted over
+                         dry ground. IWHR is 93% of the training pool, so the
+                         model learns "large smooth region near debris = water"
+                         and then paints the sky on the test location.
+      risid.background -- risid.yaml never set `unlabelled: ignore`, so convert.py
+                         applied its `background` default and every unannotated
+                         pixel -- i.e. the entire river surface -- became
+                         `background`. 99.86% of RiSID pixels are class 0. Training
+                         on that teaches "river water is background".
+
+    Sending those to ignore keeps the half of each dataset that IS trustworthy
+    (IWHR's debris boxes, RiSID's debris polygons) and drops the half that is not.
+    Applied at load time like the collapse LUT, so the PNGs on disk are untouched
+    and this is reversible by deleting the config block.
+    """
+    lut = np.arange(256, dtype=np.uint8)
+    for src_name, dst_name in mapping.items():
+        dst = schema.ignore_index if dst_name == "ignore" else schema.id_of(dst_name)
+        lut[schema.id_of(src_name)] = dst
+    return lut
+
+
 def build_transform(cfg: dict[str, Any] | None, size: int, train: bool):
     import albumentations as A
 
@@ -82,7 +118,13 @@ def build_transform(cfg: dict[str, Any] | None, size: int, train: bool):
         return A.Compose(
             [
                 A.LongestMaxSize(max_size=size),
-                A.PadIfNeeded(size, size, border_mode=0),
+                # fill_mask=255, not the albumentations default of 0. Every source
+                # image is 4:3 or 16:9, so padding to a square adds a bar over
+                # 25-37% of the canvas. At the default that bar is labelled
+                # `background`: the model spends capacity learning that a black
+                # letterbox is a real class, and the padded pixels enter the
+                # confusion matrix as free background true-positives.
+                A.PadIfNeeded(size, size, border_mode=0, fill_mask=PAD_IGNORE),
                 A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
             ]
         )
@@ -95,7 +137,7 @@ def build_transform(cfg: dict[str, Any] | None, size: int, train: bool):
     return A.Compose(
         [
             A.LongestMaxSize(max_size=size),
-            A.PadIfNeeded(size, size, border_mode=0),
+            A.PadIfNeeded(size, size, border_mode=0, fill_mask=PAD_IGNORE),
             A.HorizontalFlip(p=0.5),
             # Mild geometry only: a fixed camera does not tumble.
             A.Affine(
@@ -138,6 +180,7 @@ class SegDataset(Dataset):
         aug_cfg: dict[str, Any] | None = None,
         schema: Schema | None = None,
         train: bool | None = None,
+        relabel: dict[str, dict[str, str]] | None = None,
     ) -> None:
         self.items = _read_split(split)
         self.schema = schema or load_schema()
@@ -147,6 +190,13 @@ class SegDataset(Dataset):
         # Collapse is applied here, at load time, so configs/classes.yaml can merge
         # clump into debris without re-running conversion.
         self.collapse = self.schema.collapse_lut()
+        # Per-dataset relabel composed INTO the collapse LUT, so a mask still costs
+        # exactly one lookup. Order matters: relabel first (iwhr water -> ignore),
+        # collapse second (clump -> debris). collapse[255] == 255, so composing this
+        # way cannot resurrect a pixel that relabel just sent to ignore.
+        self.luts = {
+            ds: self.collapse[relabel_lut(self.schema, m)] for ds, m in (relabel or {}).items()
+        }
 
     def __len__(self) -> int:
         return len(self.items)
@@ -160,7 +210,7 @@ class SegDataset(Dataset):
         image, mask = out["image"], out["mask"]
 
         image_t = torch.from_numpy(np.ascontiguousarray(image.transpose(2, 0, 1))).float()
-        mask_t = torch.from_numpy(self.collapse[mask]).long()
+        mask_t = torch.from_numpy(self.luts.get(it.dataset, self.collapse)[mask]).long()
         return {"image": image_t, "mask": mask_t, "dataset": it.dataset, "sample_id": it.sample_id}
 
 
@@ -212,8 +262,17 @@ def build_dataloaders(cfg: dict[str, Any], schema: Schema):
     workers = int(cfg["data"].get("num_workers", 4))
     seed = int(cfg.get("seed", 0))
 
-    train_ds = SegDataset("train", size, cfg.get("aug"), schema)
-    val_ds = SegDataset("val", size, None, schema, train=False)
+    # `train_split` names the TRAIN list only, and defaults to the files data.splits
+    # wrote, so adding training data never moves the yardstick and two runs stay
+    # directly comparable. `val_split` exists for cross-validation, where every fold
+    # holds out a different location and therefore needs its own val list; leave it
+    # unset for a normal run.
+    train_split = str(cfg["data"].get("train_split", "train"))
+    val_split = str(cfg["data"].get("val_split", "val"))
+    relabel = cfg["data"].get("relabel") or {}
+
+    train_ds = SegDataset(train_split, size, cfg.get("aug"), schema, train=True, relabel=relabel)
+    val_ds = SegDataset(val_split, size, None, schema, train=False, relabel=relabel)
 
     cap = int(cfg["data"].get("per_dataset_cap", 0))
     sampler = None
