@@ -1,0 +1,84 @@
+# Base config for leave-one-location-out cross-validation over RIPTSeg.
+#
+# Not run directly. scripts/modal_train.py overrides four keys per job:
+#   name              cv_<arm>_fold<N>
+#   data.train_split  fold<N>_train_lama | fold<N>_train_v3
+#   data.val_split    fold<N>_val
+#   data.relabel      absent for the `lama` arm, set for the `v3` arm
+# The effective config is written to runs/<name>/config.yaml, so every fold keeps
+# its own provenance.
+#
+# WHY A SEPARATE BASE. combined_segformer_b0_640.yaml (batch 8, cap 400) and
+# combined_v3_segformer_b0_640.yaml (batch 16, cap 300) differ in more than the
+# data levers, so running those two head to head confounds the label fix with the
+# batch size. Everything here is held identical across both arms; the ONLY
+# differences are the two data keys above, which makes the per-fold difference
+# attributable to the labels and to RiSID, and to nothing else.
+#
+# Cross-validation exists because the single split decided everything on 50 images
+# from one camera -- and that camera, loc1, is a harbour scene unlike any other
+# location in the set. Six folds give a mean and a spread, and a paired per-fold
+# difference is far more sensitive than comparing two means.
+classes: configs/classes_collapsed.yaml
+
+name: cv_base           # always overridden
+seed: 0
+device: null
+deterministic: false
+
+model:
+  name: segformer_b0
+  args:
+    pretrained: true
+
+data:
+  size: 640
+  batch_size: 16
+  num_workers: 8
+  train_split: fold1_train_lama    # always overridden
+  val_split: fold1_val             # always overridden
+
+  # riptseg  min(200,  300 * 1.0) = 200
+  # iwhr     min(2510, 300 * 0.7) = 210
+  # risid    min(7356, 300 * 0.5) = 150   (v3 arm only)
+  per_dataset_cap: 300
+
+loss:
+  # Symmetric on purpose. Tversky at alpha 0.3 / beta 0.7 was tried in
+  # combined_v2_segformer_b0_640 and lost on IoU at every matched recall, because
+  # IoU weighs a false positive exactly like a false negative. The recall knob
+  # lives at inference instead, as a bias on the debris logit.
+  name: dice+focal
+  weights: [0.5, 0.5]
+  dice:
+    smooth: 1.0
+  focal:
+    gamma: 2.0
+
+optimizer:
+  name: adamw
+  lr: 0.0006
+  weight_decay: 0.0001
+
+scheduler:
+  name: cosine
+
+train:
+  epochs: 50
+  amp: true
+  grad_clip: 1.0
+  select_metric: iou_debris
+  early_stopping_patience: 15
+
+aug:
+  affine: 0.7
+  brightness_contrast: 0.9
+  hsv: 0.9
+  gamma: 0.5
+  clahe: 0.3
+  sun_flare: 0.25
+  tone_curve: 0.3
+  rain: 0.15
+  fog: 0.15
+  low_light: 0.2
+  motion_blur: 0.15
